@@ -1,78 +1,53 @@
-# Welcome to your Lovable project
+# Aegis GRC Guard
 
-## Project info
+Governance, Risk & Compliance web app built with React/Vite + Tailwind, backed by Supabase (Postgres + Auth + Storage). Multi-tenant by `org_id` with role-based access (`admin`, `manager`, `viewer`).
 
-**URL**: https://lovable.dev/projects/f0d14650-ba5a-4650-b321-24dea5afdd61
+## Tech Stack
+- Vite + React + TypeScript
+- Tailwind CSS + shadcn
+- Supabase (Auth, Postgres, Storage)
 
-## How can I edit this code?
+## Setup
+Prerequisites:
+- Node.js 18+
+- A Supabase project
 
-There are several ways of editing your application.
+Environment variables (`.env`):
 
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/f0d14650-ba5a-4650-b321-24dea5afdd61) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```
+VITE_SUPABASE_URL="https://<your-project-ref>.supabase.co"
+VITE_SUPABASE_ANON_KEY="<your-anon-key>"
 ```
 
-**Edit a file directly in GitHub**
+Install and run:
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```sh
+npm install
+npm run dev
+# visit http://localhost:8080
+```
 
-**Use GitHub Codespaces**
+## Database
+Apply schema in Supabase SQL editor using `supabase/schema.sql`.
+Ensure Allowed Redirect URLs include `http://localhost:8080`.
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Roles
+- admin: full control + user/org management
+- manager: GRC operations (create/update)
+- viewer: read-only
 
-## What technologies are used for this project?
+## Deploy (Vercel)
+- Link the GitHub repo in Vercel
+- Branch: `main`
+- Build command: `npm run build`
+- Output directory: `dist`
+- Env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
 
-This project is built with:
+## CI
+GitHub Actions workflow builds on push/PR to `main` and uses repository secrets for env variables.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/f0d14650-ba5a-4650-b321-24dea5afdd61) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
-
-## GRC Guard Setup & Run
+## Notes
+- File uploads rely on Supabase Storage; see `supabase/functions/*` for API endpoints.
 
 ### Prerequisites
 - Node.js 18+
