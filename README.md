@@ -36,6 +36,62 @@ Ensure Allowed Redirect URLs include `http://localhost:8080`.
 - manager: GRC operations (create/update)
 - viewer: read-only
 
+## App Interfaces
+<!-- Screenshot Guidelines
+  - Store images under docs/screenshots/
+  - Recommended size: 1280x800 PNG or JPG
+  - File naming: <section>.png (e.g., dashboard.png)
+  - Keep sensitive data out of screenshots
+-->
+
+### Auth / Login
+<!-- TODO: Add screenshot: docs/screenshots/auth.png -->
+<!-- Example: ![Auth](docs/screenshots/auth.png) -->
+
+### Dashboard
+<!-- TODO: Add screenshot: docs/screenshots/dashboard.png -->
+<!-- Example: ![Dashboard](docs/screenshots/dashboard.png) -->
+
+### Risks
+<!-- TODO: Add screenshot: docs/screenshots/risks.png -->
+<!-- Example: ![Risks](docs/screenshots/risks.png) -->
+
+### Compliance / Controls
+<!-- TODO: Add screenshot: docs/screenshots/compliance.png -->
+<!-- Example: ![Compliance](docs/screenshots/compliance.png) -->
+
+### Frameworks
+<!-- TODO: Add screenshot: docs/screenshots/frameworks.png -->
+<!-- Example: ![Frameworks](docs/screenshots/frameworks.png) -->
+
+### Policies
+<!-- TODO: Add screenshot: docs/screenshots/policies.png -->
+<!-- Example: ![Policies](docs/screenshots/policies.png) -->
+
+### Tasks
+<!-- TODO: Add screenshot: docs/screenshots/tasks.png -->
+<!-- Example: ![Tasks](docs/screenshots/tasks.png) -->
+
+### Reports
+<!-- TODO: Add screenshot: docs/screenshots/reports.png -->
+<!-- Example: ![Reports](docs/screenshots/reports.png) -->
+
+### Users
+<!-- TODO: Add screenshot: docs/screenshots/users.png -->
+<!-- Example: ![Users](docs/screenshots/users.png) -->
+
+### Settings
+<!-- TODO: Add screenshot: docs/screenshots/settings.png -->
+<!-- Example: ![Settings](docs/screenshots/settings.png) -->
+
+### Billing
+<!-- TODO: Add screenshot: docs/screenshots/billing.png -->
+<!-- Example: ![Billing](docs/screenshots/billing.png) -->
+
+### Audit Logs
+<!-- TODO: Add screenshot: docs/screenshots/audit.png -->
+<!-- Example: ![Audit](docs/screenshots/audit.png) -->
+
 ## Deploy (Vercel)
 - Link the GitHub repo in Vercel
 - Branch: `main`
