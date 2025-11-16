@@ -214,7 +214,7 @@ const Users = () => {
       if (error) {
         const ctx = (error as any)?.context || {} as any;
         let msg = ctx.error || ctx.message || error.message || "Edge function error";
-        try { if (ctx.body && typeof ctx.body === "string") { const parsed = JSON.parse(ctx.body); if (parsed?.error) msg = parsed.error; } } catch {}
+        try { if (ctx.body && typeof ctx.body === "string") { const parsed = JSON.parse(ctx.body); if (parsed?.error) msg = parsed.error; } } catch { void 0; }
         throw new Error(msg);
       }
       toast({ title: "User deleted", description: profile.email || profile.id });
