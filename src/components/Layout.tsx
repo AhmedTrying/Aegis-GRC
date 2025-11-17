@@ -90,11 +90,7 @@ const Layout = ({ children }: LayoutProps) => {
         <div className="flex-1 flex flex-col">
           <header className="h-16 border-b border-border bg-card flex items-center justify-between px-6" style={{ borderColor: org?.brand_color || undefined }}>
             <div className="flex items-center gap-3">
-              {org?.logo_url ? (
-                <img src={org.logo_url} alt="Logo" className="h-6 w-auto" />
-              ) : (
-                <img src="/aegis-logo.svg" alt="Logo" className="h-6 w-auto" />
-              )}
+              <img src="/aegis-logo.png" alt="Logo" className="h-6 w-auto" />
               <h1 className="text-xl font-semibold text-foreground">{org?.name ?? "Aegis GRC"}</h1>
             </div>
             

@@ -49,11 +49,7 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarContent className="bg-sidebar">
         <div className="p-4 flex items-center gap-2 border-b border-sidebar-border">
-          {org?.logo_url ? (
-            <img src={org.logo_url} alt="Logo" className="h-6 w-6 rounded" />
-          ) : (
-            <Shield className="h-6 w-6" style={{ color: org?.brand_color || undefined }} />
-          )}
+          <img src="/aegis-logo.png" alt="Logo" className="h-6 w-6 rounded" />
           <span className="font-semibold text-sidebar-foreground">{org?.name ?? "Aegis GRC"}</span>
         </div>
         
