@@ -34,7 +34,7 @@ const items = [
   { title: "Frameworks", url: "/frameworks", icon: GitBranch },
   { title: "Policies", url: "/policies", icon: FileText },
   { title: "Tasks", url: "/tasks", icon: ListTodo },
-  { title: "Evidence", url: "/compliance", icon: Shield },
+  { title: "Evidence", url: "/evidence", icon: Shield },
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Audit", url: "/audit", icon: BarChart3 },
 ];

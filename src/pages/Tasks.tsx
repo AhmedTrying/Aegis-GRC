@@ -298,62 +298,72 @@ const Tasks = () => {
           <CardTitle>All Tasks</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Title</TableHead>
-                <TableHead>Assigned To</TableHead>
-                <TableHead>Related To</TableHead>
-                <TableHead>Due Date</TableHead>
-                <TableHead>Status</TableHead>
-                {canEdit && <TableHead className="text-right">Actions</TableHead>}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredTasks.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    No tasks found
-                  </TableCell>
+          <div className="overflow-x-auto">
+            <Table className="min-w-full">
+              <colgroup>
+                <col style={{ width: "260px" }} />
+                <col style={{ width: "220px" }} />
+                <col style={{ width: "160px" }} />
+                <col style={{ width: "160px" }} />
+                <col style={{ width: "160px" }} />
+                {canEdit && <col style={{ width: "120px" }} />}
+              </colgroup>
+              <TableHeader>
+                <TableRow className="bg-slate-50/60">
+                  <TableHead className="text-left">Title</TableHead>
+                  <TableHead className="text-left">Assigned To</TableHead>
+                  <TableHead className="text-left">Related To</TableHead>
+                  <TableHead className="text-center">Due Date</TableHead>
+                  <TableHead className="text-center">Status</TableHead>
+                  {canEdit && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
-              ) : (
-                filteredTasks.map((task) => (
-                  <TableRow key={task.id}>
-                    <TableCell className="font-medium">{task.title}</TableCell>
-                    <TableCell>{task.profiles?.full_name || "Unassigned"}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{task.related_type}</Badge>
+              </TableHeader>
+              <TableBody>
+                {filteredTasks.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={canEdit ? 6 : 5} className="text-center text-muted-foreground">
+                      No tasks found
                     </TableCell>
-                    <TableCell>
-                      {task.due_date ? new Date(task.due_date).toLocaleDateString() : "-"}
-                    </TableCell>
-                    <TableCell>
-                      {canEdit ? (
-                        <Button
-                          variant={task.status === "done" ? "outline" : "secondary"}
-                          size="sm"
-                          onClick={() => toggleTaskStatus(task)}
-                        >
-                          {task.status === "done" ? "Reopen" : "Mark Done"}
-                        </Button>
-                      ) : (
-                        <Badge variant={task.status === "done" ? "secondary" : "default"}>
-                          {task.status}
-                        </Badge>
-                      )}
-                    </TableCell>
-                    {canEdit && (
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="sm" onClick={() => handleEdit(task)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    )}
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  filteredTasks.map((task) => (
+                    <TableRow key={task.id} className="hover:bg-slate-50">
+                      <TableCell className="font-medium truncate" title={task.title}>{task.title}</TableCell>
+                      <TableCell className="whitespace-nowrap">{task.profiles?.full_name || "Unassigned"}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{task.related_type}</Badge>
+                      </TableCell>
+                      <TableCell className="text-center whitespace-nowrap">
+                        {task.due_date ? new Date(task.due_date).toLocaleDateString() : "—"}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {canEdit ? (
+                          <Button
+                            variant={task.status === "done" ? "outline" : "secondary"}
+                            size="sm"
+                            onClick={() => toggleTaskStatus(task)}
+                          >
+                            {task.status === "done" ? "Reopen" : "Mark Done"}
+                          </Button>
+                        ) : (
+                          <Badge variant={task.status === "done" ? "secondary" : "default"}>
+                            {task.status}
+                          </Badge>
+                        )}
+                      </TableCell>
+                      {canEdit && (
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" onClick={() => handleEdit(task)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

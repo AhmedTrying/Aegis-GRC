@@ -14,6 +14,7 @@ import Tasks from "./pages/Tasks";
 import Reports from "./pages/Reports";
 import Audit from "./pages/Audit";
 import Frameworks from "./pages/Frameworks";
+import Evidence from "./pages/Evidence";
 import Settings from "./pages/Settings";
 import Usage from "./pages/Usage";
 import Billing from "./pages/Billing";
@@ -51,6 +52,7 @@ const App = () => (
             <Route path="/risks" element={<Layout><Risks /></Layout>} />
             <Route path="/compliance" element={<Layout><Compliance /></Layout>} />
             <Route path="/frameworks" element={<Layout><Frameworks /></Layout>} />
+            <Route path="/evidence" element={<Layout><Evidence /></Layout>} />
             <Route path="/policies" element={<Layout><Policies /></Layout>} />
             <Route path="/billing" element={<Layout><Billing /></Layout>} />
             <Route path="/settings" element={<Layout><Settings /></Layout>} />

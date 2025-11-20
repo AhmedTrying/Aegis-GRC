@@ -53,19 +53,47 @@ serve(async (req) => {
     }
 
     // Adopt existing org if this user is owner already
-    const { data: owned } = await admin.from("organizations").select("id, name, plan, owner_id, slug").eq("owner_id", user.id).limit(1);
+    const { data: owned } = await admin
+      .from("organizations")
+      .select("id, name, plan, plan_status, owner_id, slug")
+      .eq("owner_id", user.id)
+      .order("created_at", { ascending: true })
+      .limit(1);
     let org = owned && (owned[0] as any);
     if (!org) {
-      const orgName = orgNameRaw || (profile.full_name ? `${profile.full_name}'s Organization` : (user.email?.split("@")[0] || "Workspace"));
+      const metaName = String((user.user_metadata as any)?.org_pending_name || "").trim();
+      const orgName = (metaName && metaName.length > 1) ? metaName : (orgNameRaw || (profile.full_name ? `${profile.full_name}'s Organization` : (user.email?.split("@")[0] || "Workspace")));
       const base = slugify(orgName) || "workspace";
-      const candidates = [base, `${base}-${crypto.randomUUID().slice(0,4)}`];
-      for (const s of candidates) {
+      // First, try deterministic base slug
+      {
         const { data: created, error } = await admin
           .from("organizations")
-          .insert({ name: orgName, plan: "free", owner_id: user.id, slug: s })
-          .select("id, name, plan, owner_id, slug")
+          .insert({ name: orgName, plan: "free", plan_status: "active", owner_id: user.id, slug: base, brand_color: "#4f46e5" })
+          .select("id, name, plan, plan_status, owner_id, slug")
           .single();
-        if (!error && created) { org = created as any; break; }
+        if (!error && created) {
+          org = created as any;
+        }
+      }
+      // If insert failed (race or slug conflict), re-check for an existing org for this owner and adopt it
+      if (!org) {
+        const { data: ownedAfter } = await admin
+          .from("organizations")
+          .select("id, name, plan, plan_status, owner_id, slug")
+          .eq("owner_id", user.id)
+          .order("created_at", { ascending: true })
+          .limit(1);
+        org = ownedAfter && (ownedAfter[0] as any);
+      }
+      // As a final fallback (true slug conflict with another org), create a unique slug
+      if (!org) {
+        const unique = `${base}-${crypto.randomUUID().slice(0,4)}`;
+        const { data: created2, error: err2 } = await admin
+          .from("organizations")
+          .insert({ name: orgName, plan: "free", plan_status: "active", owner_id: user.id, slug: unique, brand_color: "#4f46e5" })
+          .select("id, name, plan, plan_status, owner_id, slug")
+          .single();
+        if (!err2 && created2) { org = created2 as any; }
       }
       if (!org) return new Response(JSON.stringify({ error: "failed_to_create_org" }), { status: 400, headers: cors(req) });
     }

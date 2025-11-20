@@ -19,11 +19,11 @@ export const useUserRole = () => {
         }
         const { data: profile } = await supabase
           .from("profiles")
-          .select("role")
+          .select("role, org_id")
           .eq("id", user.id)
           .single();
         let nextRole = (profile?.role as UserRole) || "viewer";
-        if (!profile?.role) {
+        if (nextRole !== "admin" || !profile?.org_id) {
           try {
             await resolveCurrentOrg();
             const { data: re } = await supabase

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { getRequiredOrgId } from "@/integrations/supabase/org";
 import {
   Dialog,
   DialogContent,
@@ -78,10 +79,11 @@ export const TreatmentPlanDialog = ({
   }, [plan, open]);
 
   const fetchUsers = async () => {
+    const orgId = await getRequiredOrgId();
     const { data } = await supabase
       .from("profiles")
-      .select("id, full_name, email");
-    
+      .select("id, full_name, email")
+      .eq("org_id", orgId);
     if (data) {
       setUsers(data);
     }
@@ -91,6 +93,7 @@ export const TreatmentPlanDialog = ({
     e.preventDefault();
     setLoading(true);
 
+    const orgId = await getRequiredOrgId();
     const payload = {
       risk_id: riskId,
       action_title: formData.action_title,
@@ -101,6 +104,7 @@ export const TreatmentPlanDialog = ({
       status: formData.status,
       cost_estimate: formData.cost_estimate ? parseFloat(formData.cost_estimate) : null,
       evidence_url: formData.evidence_url || null,
+      org_id: orgId,
     };
 
     let error;
@@ -108,7 +112,8 @@ export const TreatmentPlanDialog = ({
       ({ error } = await supabase
         .from("treatment_plans")
         .update(payload)
-        .eq("id", plan.id));
+        .eq("id", plan.id)
+        .eq("org_id", orgId));
     } else {
       ({ error } = await supabase
         .from("treatment_plans")

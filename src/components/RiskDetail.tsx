@@ -40,6 +40,7 @@ import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 import type { Tables, TablesUpdate } from "@/integrations/supabase/types";
 
@@ -91,7 +92,7 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
   const [linkedPolicies, setLinkedPolicies] = useState<RiskPolicyLink[]>([]);
   const [findings, setFindings] = useState<FindingRow[]>([]);
   const [relatedTasks, setRelatedTasks] = useState<TaskRow[]>([]);
-  const [linkTab, setLinkTab] = useState<string>("controls");
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [controlsList, setControlsList] = useState<Tables<"controls">[]>([]);
   const [policiesList, setPoliciesList] = useState<Tables<"policies">[]>([]);
   const [reviewLogs, setReviewLogs] = useState<Record<string, unknown>[]>([]);
@@ -118,11 +119,12 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
 
   const fetchTreatmentPlans = useCallback(async () => {
     if (!risk) return;
-
+    const orgId = await getRequiredOrgId();
     const { data, error } = await supabase
       .from("treatment_plans")
       .select("*, profiles!treatment_plans_responsible_user_fkey(full_name)")
       .eq("risk_id", risk.id)
+      .eq("org_id", orgId)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -137,10 +139,12 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
       setDelegateProfile(null);
       return;
     }
+    const orgId = await getRequiredOrgId();
     const { data, error } = await supabase
       .from("profiles")
       .select("id, full_name, email")
       .eq("id", risk.delegate_owner)
+      .eq("org_id", orgId)
       .maybeSingle();
     if (!error) setDelegateProfile((data ?? null) as Tables<"profiles"> | null);
   }, [risk?.delegate_owner]);
@@ -167,13 +171,25 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
     setReviewLogs((data ?? []) as Record<string, unknown>[]);
   }, [risk?.id]);
 
+  const fetchAuditLogs = useCallback(async () => {
+    const orgId = await getRequiredOrgId();
+    const { data } = await supabase
+      .from("audit_logs")
+      .select("id, actor_email, entity_type, entity_id, action, created_at, before_data, after_data")
+      .eq("org_id", orgId)
+      .eq("entity_type", "risks")
+      .eq("entity_id", risk.id)
+      .order("created_at", { ascending: false });
+    setAuditLogs(((data ?? []) as any[]));
+  }, [risk?.id]);
+
   const fetchApprovers = useCallback(async () => {
     const orgId = await getRequiredOrgId();
     const { data, error } = await supabase
       .from("profiles")
       .select("id, full_name, email, role")
       .eq("org_id", orgId);
-    if (!error && data) setApprovers((data ?? []) as Tables<"profiles">[]);
+    if (!error && data) setApprovers(((data ?? []) as Tables<"profiles">[]).filter((p) => p.role === "admin"));
   }, []);
 
   const preloadLists = useCallback(async () => {
@@ -210,10 +226,12 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
   }, [risk?.id]);
 
   const fetchFindings = useCallback(async () => {
+    const orgId = await getRequiredOrgId();
     const { data } = await supabase
       .from("findings")
       .select("*, profiles!findings_owner_fkey(full_name)")
       .eq("risk_id", risk.id)
+      .eq("org_id", orgId)
       .order("created_at", { ascending: false });
     setFindings(((data ?? []) as FindingRow[]));
   }, [risk?.id]);
@@ -264,12 +282,13 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
     fetchDelegateProfile();
     fetchAcceptanceLogs();
     fetchReviewLogs();
+    fetchAuditLogs();
     fetchApprovers();
     fetchLinkages();
     fetchFindings();
     fetchRelatedTasks();
     preloadLists();
-  }, [risk, open, fetchTreatmentPlans, fetchDelegateProfile, fetchAcceptanceLogs, fetchReviewLogs, fetchApprovers, fetchLinkages, fetchFindings, fetchRelatedTasks, preloadLists]);
+  }, [risk, open, fetchTreatmentPlans, fetchDelegateProfile, fetchAcceptanceLogs, fetchReviewLogs, fetchAuditLogs, fetchApprovers, fetchLinkages, fetchFindings, fetchRelatedTasks, preloadLists]);
 
   useEffect(() => {
     loadAll();
@@ -399,6 +418,10 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
   };
 
   const handleRequestAcceptance = async () => {
+    if (role === "viewer") {
+      toast({ variant: "destructive", title: "Not allowed", description: "Viewers cannot request acceptance." });
+      return;
+    }
     if (!acceptForm.approver || !acceptForm.rationale || !acceptForm.expiry) {
       toast({ variant: "destructive", title: "Missing fields", description: "Approver, rationale, and expiry are required." });
       return;
@@ -458,6 +481,10 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
   };
 
   const handleApproveAcceptance = async () => {
+    if (role !== "admin" || !(currentUserId && risk.acceptance_approver === currentUserId)) {
+      toast({ variant: "destructive", title: "Not allowed", description: "Only the designated admin approver can approve." });
+      return;
+    }
     if (!risk.acceptance_rationale || !risk.acceptance_expiry) {
       toast({ variant: "destructive", title: "Missing fields", description: "Rationale and expiry are required to approve." });
       return;
@@ -519,6 +546,10 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
   };
 
   const handleRejectAcceptance = async () => {
+    if (role !== "admin" || !(currentUserId && risk.acceptance_approver === currentUserId)) {
+      toast({ variant: "destructive", title: "Not allowed", description: "Only the designated admin approver can reject." });
+      return;
+    }
     // Segregation of duties: requester cannot reject
     const latestRequested = acceptanceLogs.find((l) => l.action === "requested");
     if (latestRequested && latestRequested.actor === currentUserId) {
@@ -671,6 +702,7 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
       toast({ variant: "destructive", title: "SLA due date required", description: "Please set an SLA due date for this finding." });
       return;
     }
+    const orgId = await getRequiredOrgId();
     const { error } = await supabase
       .from("findings")
       .insert({
@@ -681,6 +713,7 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
         status: newFinding.status,
         owner: newFinding.owner,
         sla_due_date: newFinding.sla_due_date,
+        org_id: orgId,
       });
     if (error) {
       toast({ variant: "destructive", title: "Error", description: error.message });
@@ -771,7 +804,7 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
   })();
   const latestRequested = acceptanceLogs.find((l) => l.action === "requested");
   const requesterId = latestRequested?.actor || null;
-  const canDecideAcceptance = ((role === "admin") || (!!currentUserId && risk.acceptance_approver === currentUserId)) && (!requesterId || requesterId !== currentUserId);
+  const canDecideAcceptance = (role === "admin") && (!!currentUserId && risk.acceptance_approver === currentUserId) && (!requesterId || requesterId !== currentUserId);
   const controlsCount = linkedControls.length;
   const policiesCount = linkedPolicies.length;
   const findingsCount = findings.length;
@@ -809,843 +842,862 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
               )}
             </div>
           </SheetHeader>
-
-          <div className="space-y-6 mt-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Risk Details</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {risk.inherent_likelihood && risk.inherent_impact ? (
-                  <div className="flex items-center gap-2">
-                    {(() => {
-                      const inherentScore = (risk.inherent_likelihood || 0) * (risk.inherent_impact || 0);
-                      const residualScore = (risk.likelihood || 0) * (risk.impact || 0);
-                      const reduction = inherentScore > 0 ? Math.round(((inherentScore - residualScore) / inherentScore) * 100) : 0;
-                      return (
-                        <Badge variant="outline" className={`text-xs ${allPlansDone ? "border-green-500 text-green-600" : ""}`}>
-                          Inherent {risk.inherent_likelihood}×{risk.inherent_impact} → Residual {risk.likelihood}×{risk.impact} ({reduction}% reduction)
-                        </Badge>
-                      );
-                    })()}
-                    {(() => {
-                      const residualHigher = (
-                        (risk.inherent_likelihood && risk.likelihood && risk.likelihood > risk.inherent_likelihood) ||
-                        (risk.inherent_impact && risk.impact && risk.impact > risk.inherent_impact)
-                      );
-                      return residualHigher ? (
-                        <span className="inline-flex items-center gap-1 text-red-700 text-xs">
-                          <AlertTriangle className="h-3 w-3" /> Residual exceeds inherent — review required
-                        </span>
-                      ) : null;
-                    })()}
-                  </div>
-                ) : null}
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Description</p>
-                  <p className="mt-1">{risk.description || "No description"}</p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Owner</p>
-                    <p className="mt-1">{risk.profiles?.full_name || "Unassigned"}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Delegate</p>
-                    <p className="mt-1">{delegateProfile?.full_name || "None"}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Status</p>
-                    <Badge
-                      className="mt-1"
-                      variant={
-                        risk.status === "open"
-                          ? "destructive"
-                          : risk.status === "in_progress"
-                          ? "default"
-                          : "secondary"
-                      }
-                    >
-                      {risk.status}
-                    </Badge>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Next Review</p>
-                    <div className="mt-1 flex items-center gap-2">
-                      <span>{risk.next_review_date ? new Date(risk.next_review_date).toLocaleDateString() : "Not set"}</span>
+          
+              <Card>
+                <CardHeader>
+                  <CardTitle>Risk Details</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {risk.inherent_likelihood && risk.inherent_impact ? (
+                    <div className="flex items-center gap-2">
                       {(() => {
-                        if (!risk.next_review_date) return null;
-                        const next = new Date(risk.next_review_date);
-                        const now = new Date();
-                        // Clear time to date-only compare
-                        next.setHours(0,0,0,0);
-                        now.setHours(0,0,0,0);
-                        const overdue = next < now;
-                        const msPerDay = 24 * 60 * 60 * 1000;
-                        const daysLeft = Math.max(0, Math.round((next.getTime() - now.getTime()) / msPerDay));
+                        const inherentScore = (risk.inherent_likelihood || 0) * (risk.inherent_impact || 0);
+                        const residualScore = (risk.likelihood || 0) * (risk.impact || 0);
+                        const reduction = inherentScore > 0 ? Math.round(((inherentScore - residualScore) / inherentScore) * 100) : 0;
                         return (
-                          <>
-                            {overdue ? (
-                              <span className="inline-flex items-center text-red-600 text-xs">
-                                <AlertTriangle className="h-4 w-4 mr-1" /> Overdue
-                              </span>
-                            ) : (
-                              <span className={`text-xs ${daysLeft <= 7 ? "text-red-600" : daysLeft <= 14 ? "text-amber-600" : "text-muted-foreground"}`}>{daysLeft} days left</span>
-                            )}
-                          </>
+                          <Badge variant="outline" className={`text-xs ${allPlansDone ? "border-green-500 text-green-600" : ""}`}>
+                            Inherent {risk.inherent_likelihood}×{risk.inherent_impact} → Residual {risk.likelihood}×{risk.impact} ({reduction}% reduction)
+                          </Badge>
                         );
                       })()}
-                    </div>
-                    {canEdit && (
-                      <div className="mt-2">
-                        <Button size="sm" variant="outline" onClick={() => setReviewConfirmOpen(true)}>Mark reviewed</Button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Inherent → Residual badge */}
-                {risk.inherent_likelihood && risk.inherent_impact ? (
-                  <div className="mb-2">
-                    {(() => {
-                      const inherentScore = (risk.inherent_likelihood || 0) * (risk.inherent_impact || 0);
-                      const residualScore = risk.score || ((risk.likelihood || 0) * (risk.impact || 0));
-                      const reduction = inherentScore > 0 ? Math.round((1 - residualScore / inherentScore) * 100) : 0;
-                      const color = reduction >= 50 ? "bg-green-100 text-green-700" : reduction >= 20 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700";
-                      return (
-                        <span className={`inline-block text-xs px-2 py-1 rounded ${color}`}>
-                          Inherent {risk.inherent_likelihood}×{risk.inherent_impact} → Residual {risk.likelihood}×{risk.impact} ({reduction}% reduction)
-                        </span>
-                      );
-                    })()}
-                  </div>
-                ) : null}
-
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Residual Likelihood</p>
-                    <p className="text-2xl font-bold mt-1">{risk.likelihood}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Residual Impact</p>
-                    <p className="text-2xl font-bold mt-1">{risk.impact}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Residual Score</p>
-                    <p className={`text-2xl font-bold mt-1 ${allPlansDone ? "text-green-600" : "text-primary"}`}>{risk.score}</p>
-                  </div>
-                </div>
-
-                <Separator className="my-2" />
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Category</p>
-                    <p className="mt-1">{risk.category || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Department</p>
-                    <p className="mt-1">{risk.department || "—"}</p>
-                  </div>
-                  <div className="col-span-2">
-                    <p className="text-sm font-medium text-muted-foreground">Cause</p>
-                    <p className="mt-1">{risk.cause || "—"}</p>
-                  </div>
-                  <div className="col-span-2">
-                    <p className="text-sm font-medium text-muted-foreground">Consequence</p>
-                    <p className="mt-1">{risk.consequence || "—"}</p>
-                  </div>
-                  <div className="col-span-2">
-                    <p className="text-sm font-medium text-muted-foreground">Affected Asset/System</p>
-                    <p className="mt-1">{risk.affected_asset || "—"}</p>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Created At</p>
-                  <p className="mt-1">{new Date(risk.created_at).toLocaleDateString()}</p>
-                </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Reviews</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {reviewLogs.length === 0 ? (
-                <p className="text-muted-foreground">No reviews yet</p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Reviewer</TableHead>
-                      <TableHead>Note</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {reviewLogs.map((log) => (
-                      <TableRow key={log.id}>
-                        <TableCell>{new Date(log.reviewed_at).toLocaleString()}</TableCell>
-                        <TableCell>{log.profiles?.full_name || "—"}</TableCell>
-                        <TableCell>{log.note || "—"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle>Acceptance</CardTitle>
-                  {canEdit && (
-                    <Button
-                      size="sm"
-                      disabled={displayStatus === "requested" || displayStatus === "under_review"}
-                      onClick={() => setAcceptFormOpen((v) => !v)}
-                    >
-                      {displayStatus === "requested" ? "Awaiting Approval" : displayStatus === "under_review" ? "Under Review" : displayStatus === "approved" ? "Request Renewal" : displayStatus === "rejected" ? "Resubmit Request" : "Request Acceptance"}
-                    </Button>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Status</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline">{displayStatusLabel}</Badge>
-                      {isExpired && <Badge variant="destructive">Expired</Badge>}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Approver</p>
-                    <p className="mt-1">{approverProfile ? `${approverProfile.full_name} (${approverProfile.role})` : "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Expiry</p>
-                    <div className="mt-1 flex items-center gap-2">
-                      <span>{risk.acceptance_expiry ? new Date(risk.acceptance_expiry).toLocaleDateString() : "—"}</span>
                       {(() => {
-                        if (!risk.acceptance_expiry) return null;
-                        const today = new Date();
-                        const expiry = new Date(risk.acceptance_expiry);
-                        today.setHours(0,0,0,0);
-                        expiry.setHours(0,0,0,0);
-                        const msPerDay = 24 * 60 * 60 * 1000;
-                        const daysLeft = Math.max(0, Math.round((expiry.getTime() - today.getTime()) / msPerDay));
-                        return (
-                          <span className={`text-xs ${daysLeft <= 1 ? "text-red-600" : daysLeft <= 7 ? "text-red-500" : daysLeft <= 14 ? "text-amber-600" : "text-muted-foreground"}`}>{daysLeft} days left</span>
+                        const residualHigher = (
+                          (risk.inherent_likelihood && risk.likelihood && risk.likelihood > risk.inherent_likelihood) ||
+                          (risk.inherent_impact && risk.impact && risk.impact > risk.inherent_impact)
                         );
+                        return residualHigher ? (
+                          <span className="inline-flex items-center gap-1 text-red-700 text-xs">
+                            <AlertTriangle className="h-3 w-3" /> Residual exceeds inherent — review required
+                          </span>
+                        ) : null;
                       })()}
                     </div>
+                  ) : null}
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Description</p>
+                    <p className="mt-1">{risk.description || "No description"}</p>
                   </div>
-                </div>
-
-                {displayStatus === "under_review" && canDecideAcceptance && (
-                  <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="text-sm font-medium">Decision comment (optional)</label>
-                      <Textarea
+                      <p className="text-sm font-medium text-muted-foreground">Owner</p>
+                      <p className="mt-1">{risk.profiles?.full_name || "Unassigned"}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Delegate</p>
+                      <p className="mt-1">{delegateProfile?.full_name || "None"}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Status</p>
+                      <Badge
                         className="mt-1"
-                        value={decisionComment}
-                        onChange={(e) => setDecisionComment(e.target.value)}
-                        placeholder="Add context for your approval or rejection"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" disabled={deciding} onClick={handleApproveAcceptance}>Approve</Button>
-                      <Button size="sm" disabled={deciding} variant="destructive" onClick={handleRejectAcceptance}>Reject</Button>
-                    </div>
-                  </div>
-                )}
-
-                {acceptFormOpen && canEdit && (
-                  <div className="space-y-3 border rounded-md p-3">
-                    <div>
-                      <label className="text-sm font-medium">Approver</label>
-                      <select
-                        className="mt-1 w-full border rounded-md h-9 px-2 bg-background"
-                        value={acceptForm.approver}
-                        onChange={(e) => setAcceptForm({ ...acceptForm, approver: e.target.value })}
+                        variant={
+                          risk.status === "open"
+                            ? "destructive"
+                            : risk.status === "in_progress"
+                            ? "default"
+                            : "secondary"
+                        }
                       >
-                        <option value="">Select approver</option>
-                        {approvers.map((p) => (
-                          <option key={p.id} value={p.id}>{p.full_name} ({p.role})</option>
-                        ))}
-                      </select>
+                        {risk.status}
+                      </Badge>
                     </div>
                     <div>
-                      <label className="text-sm font-medium">Rationale</label>
-                      <Textarea
-                        className="mt-1"
-                        value={acceptForm.rationale}
-                        onChange={(e) => setAcceptForm({ ...acceptForm, rationale: e.target.value })}
-                        placeholder="Justification for accepting this risk"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium">Expiry date</label>
-                      <Input
-                        type="date"
-                        className="mt-1"
-                        value={acceptForm.expiry}
-                        onChange={(e) => setAcceptForm({ ...acceptForm, expiry: e.target.value })}
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={handleRequestAcceptance}>Submit request</Button>
-                      <Button size="sm" variant="outline" onClick={() => setAcceptFormOpen(false)}>Cancel</Button>
+                      <p className="text-sm font-medium text-muted-foreground">Next Review</p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span>{risk.next_review_date ? new Date(risk.next_review_date).toLocaleDateString() : "Not set"}</span>
+                        {(() => {
+                          if (!risk.next_review_date) return null;
+                          const next = new Date(risk.next_review_date);
+                          const now = new Date();
+                          next.setHours(0,0,0,0);
+                          now.setHours(0,0,0,0);
+                          const overdue = next < now;
+                          const msPerDay = 24 * 60 * 60 * 1000;
+                          const daysLeft = Math.max(0, Math.round((next.getTime() - now.getTime()) / msPerDay));
+                          return (
+                            <>
+                              {overdue ? (
+                                <span className="inline-flex items-center text-red-600 text-xs">
+                                  <AlertTriangle className="h-4 w-4 mr-1" /> Overdue
+                                </span>
+                              ) : (
+                                <span className={`text-xs ${daysLeft <= 7 ? "text-red-600" : daysLeft <= 14 ? "text-amber-600" : "text-muted-foreground"}`}>{daysLeft} days left</span>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                      {canEdit && (
+                        <div className="mt-2">
+                          <Button size="sm" variant="outline" onClick={() => setReviewConfirmOpen(true)}>Mark reviewed</Button>
+                        </div>
+                      )}
                     </div>
                   </div>
-                )}
+                  {risk.inherent_likelihood && risk.inherent_impact ? (
+                    <div className="mb-2">
+                      {(() => {
+                        const inherentScore = (risk.inherent_likelihood || 0) * (risk.inherent_impact || 0);
+                        const residualScore = risk.score || ((risk.likelihood || 0) * (risk.impact || 0));
+                        const reduction = inherentScore > 0 ? Math.round((1 - residualScore / inherentScore) * 100) : 0;
+                        const color = reduction >= 50 ? "bg-green-100 text-green-700" : reduction >= 20 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700";
+                        return (
+                          <span className={`inline-block text-xs px-2 py-1 rounded ${color}`}>
+                            Inherent {risk.inherent_likelihood}×{risk.inherent_impact} → Residual {risk.likelihood}×{risk.impact} ({reduction}% reduction)
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  ) : null}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Residual Likelihood</p>
+                      <p className="text-2xl font-bold mt-1">{risk.likelihood}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Residual Impact</p>
+                      <p className="text-2xl font-bold mt-1">{risk.impact}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Residual Score</p>
+                      <p className={`text-2xl font-bold mt-1 ${allPlansDone ? "text-green-600" : "text-primary"}`}>{risk.score}</p>
+                    </div>
+                  </div>
+                  <Separator className="my-2" />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Category</p>
+                      <p className="mt-1">{risk.category || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Department</p>
+                      <p className="mt-1">{risk.department || "—"}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-sm font-medium text-muted-foreground">Cause</p>
+                      <p className="mt-1">{risk.cause || "—"}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-sm font-medium text-muted-foreground">Consequence</p>
+                      <p className="mt-1">{risk.consequence || "—"}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-sm font-medium text-muted-foreground">Affected Asset/System</p>
+                      <p className="mt-1">{risk.affected_asset || "—"}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Created At</p>
+                    <p className="mt-1">{new Date(risk.created_at).toLocaleDateString()}</p>
+                  </div>
+                </CardContent>
+              </Card>
 
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Audit Trail</p>
-                  {acceptanceLogs.length === 0 ? (
-                    <p className="text-muted-foreground mt-1">No acceptance activity</p>
+              <Card>
+                <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <CardTitle>Treatment Plans</CardTitle>
+                    <div className="flex items-center gap-4">
+                      {treatmentPlans.length > 0 && (
+                        <div
+                          className="hidden md:flex items-end gap-1 h-6"
+                          title="Burn-up microchart: each bar shows a plan's current progress"
+                        >
+                          {treatmentPlans.map((p, idx) => {
+                            const progress = typeof p.progress === "number" ? p.progress : 0;
+                            const clamped = Math.max(0, Math.min(100, p.status === "done" ? 100 : progress));
+                            const height = Math.round((clamped / 100) * 24);
+                            const color = p.status === "done" ? "bg-green-600" : "bg-primary/60";
+                            return (
+                              <div
+                                key={idx}
+                                className={`w-1 rounded ${color}`}
+                                style={{ height }}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                      {canEdit && (
+                        <Button size="sm" onClick={handleAddPlan}>
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Plan
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {treatmentPlans.length === 0 && (
+                    <div className="mb-4 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-800">
+                      <AlertTriangle className="h-4 w-4" />
+                      <div>
+                        <p className="text-sm font-medium">No treatment plans configured</p>
+                        <p className="text-xs">Add at least one plan to drive remediation and tracking.</p>
+                      </div>
+                    </div>
+                  )}
+                  {treatmentPlans.length === 0 ? (
+                    <p className="text-muted-foreground text-center py-4">No treatment plans yet</p>
                   ) : (
-                    <Table className="mt-2">
+                    <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Date</TableHead>
                           <TableHead>Action</TableHead>
-                          
-                          <TableHead>Actor</TableHead>
-                          <TableHead>Rationale</TableHead>
-                          <TableHead>Expiry</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Responsible</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Due</TableHead>
+                          <TableHead>Progress</TableHead>
+                          <TableHead>Blocked</TableHead>
+                          {canEdit && <TableHead className="text-right">Actions</TableHead>}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {acceptanceLogs.map((log) => (
-                          <TableRow key={log.id}>
-                            <TableCell>{new Date(log.created_at).toLocaleString()}</TableCell>
-                            <TableCell>{log.action}</TableCell>
-                            <TableCell>{log.profiles?.full_name || "—"}</TableCell>
-                            <TableCell>{log.rationale || "—"}</TableCell>
-                            <TableCell>{log.expiry ? new Date(log.expiry).toLocaleDateString() : "—"}</TableCell>
+                        {treatmentPlans.map((plan) => (
+                          <TableRow key={plan.id}>
+                            <TableCell className="font-medium">{plan.action_title}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{plan.action_type}</Badge>
+                            </TableCell>
+                            <TableCell>{plan.profiles?.full_name || "Unassigned"}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  plan.status === "done"
+                                    ? "secondary"
+                                    : plan.status === "in_progress"
+                                    ? "default"
+                                    : "outline"
+                                }
+                              >
+                                {plan.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {plan.due_date ? (
+                                <div className="flex items-center gap-2">
+                                  <span>{new Date(plan.due_date).toLocaleDateString()}</span>
+                                  {plan.status !== "done" && new Date(plan.due_date) < new Date() && (
+                                    <Badge variant="destructive">Overdue</Badge>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="w-48">
+                              {canEdit ? (
+                                <div className="flex items-center gap-2">
+                                  <Slider
+                                    value={[typeof plan.progress === "number" ? plan.progress : 0]}
+                                    min={0}
+                                    max={100}
+                                    step={1}
+                                    onValueChange={(val) => handleProgressChange(plan.id, val[0])}
+                                  />
+                                  <span className="text-sm w-10 text-right">{Math.round(plan.progress ?? 0)}%</span>
+                                </div>
+                              ) : (
+                                <span className="text-sm">{Math.round(plan.progress ?? 0)}%</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="w-56">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <Switch
+                                    checked={!!plan.blocked}
+                                    disabled={!canEdit}
+                                    onCheckedChange={(checked) => handleBlockedChange(plan.id, checked)}
+                                  />
+                                  <span className="text-sm">{plan.blocked ? "Blocked" : "Clear"}</span>
+                                </div>
+                                {plan.blocked && (
+                                  <Input
+                                    placeholder="Reason"
+                                    defaultValue={plan.blocked_reason || ""}
+                                    disabled={!canEdit}
+                                    onBlur={(e) => handleBlockedReasonChange(plan.id, e.target.value)}
+                                  />
+                                )}
+                              </div>
+                            </TableCell>
+                            {canEdit && (
+                              <TableCell className="text-right">
+                                <div className="flex justify-end gap-2">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleEditPlan(plan)}
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      setPlanToDelete(plan.id);
+                                      setDeleteDialogOpen(true);
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            )}
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
                   )}
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle>Treatment Plans</CardTitle>
-                  <div className="flex items-center gap-4">
-                    {treatmentPlans.length > 0 && (
-                      <div
-                        className="hidden md:flex items-end gap-1 h-6"
-                        title="Burn-up microchart: each bar shows a plan's current progress"
-                      >
-                        {treatmentPlans.map((p, idx) => {
-                          const progress = typeof p.progress === "number" ? p.progress : 0;
-                          const clamped = Math.max(0, Math.min(100, p.status === "done" ? 100 : progress));
-                          const height = Math.round((clamped / 100) * 24);
-                          const color = p.status === "done" ? "bg-green-600" : "bg-primary/60";
-                          return (
-                            <div
-                              key={idx}
-                              className={`w-1 rounded ${color}`}
-                              style={{ height }}
-                            />
-                          );
-                        })}
-                      </div>
-                    )}
-                    {canEdit && (
-                      <Button size="sm" onClick={handleAddPlan}>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Plan
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {treatmentPlans.length === 0 && (
-                  <div className="mb-4 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-800">
-                    <AlertTriangle className="h-4 w-4" />
-                    <div>
-                      <p className="text-sm font-medium">No treatment plans configured</p>
-                      <p className="text-xs">Add at least one plan to drive remediation and tracking.</p>
-                    </div>
-                  </div>
-                )}
-                {treatmentPlans.length === 0 ? (
-                  <p className="text-muted-foreground text-center py-4">No treatment plans yet</p>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Action</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Responsible</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Due</TableHead>
-                        <TableHead>Progress</TableHead>
-                        <TableHead>Blocked</TableHead>
-                        {canEdit && <TableHead className="text-right">Actions</TableHead>}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {treatmentPlans.map((plan) => (
-                        <TableRow key={plan.id}>
-                          <TableCell className="font-medium">{plan.action_title}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{plan.action_type}</Badge>
-                          </TableCell>
-                          <TableCell>{plan.profiles?.full_name || "Unassigned"}</TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={
-                                plan.status === "done"
-                                  ? "secondary"
-                                  : plan.status === "in_progress"
-                                  ? "default"
-                                  : "outline"
-                              }
-                            >
-                              {plan.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {plan.due_date ? (
-                              <div className="flex items-center gap-2">
-                                <span>{new Date(plan.due_date).toLocaleDateString()}</span>
-                                {plan.status !== "done" && new Date(plan.due_date) < new Date() && (
-                                  <Badge variant="destructive">Overdue</Badge>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="w-48">
-                            {canEdit ? (
-                              <div className="flex items-center gap-2">
-                                <Slider
-                                  value={[typeof plan.progress === "number" ? plan.progress : 0]}
-                                  min={0}
-                                  max={100}
-                                  step={1}
-                                  onValueChange={(val) => handleProgressChange(plan.id, val[0])}
-                                />
-                                <span className="text-sm w-10 text-right">{Math.round(plan.progress ?? 0)}%</span>
-                              </div>
-                            ) : (
-                              <span className="text-sm">{Math.round(plan.progress ?? 0)}%</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="w-56">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <Switch
-                                  checked={!!plan.blocked}
-                                  disabled={!canEdit}
-                                  onCheckedChange={(checked) => handleBlockedChange(plan.id, checked)}
-                                />
-                                <span className="text-sm">{plan.blocked ? "Blocked" : "Clear"}</span>
-                              </div>
-                              {plan.blocked && (
-                                <Input
-                                  placeholder="Reason"
-                                  defaultValue={plan.blocked_reason || ""}
-                                  disabled={!canEdit}
-                                  onBlur={(e) => handleBlockedReasonChange(plan.id, e.target.value)}
-                                />
-                              )}
-                            </div>
-                          </TableCell>
-                          {canEdit && (
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-2">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleEditPlan(plan)}
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    setPlanToDelete(plan.id);
-                                    setDeleteDialogOpen(true);
-                                  }}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
+              <Card>
+                <CardHeader>
                   <CardTitle>Linkages</CardTitle>
-                </div>
-                <div className="mt-2">
-                  <div className="inline-flex gap-2 border rounded-md p-1 bg-muted/30">
-                    <button
-                      className={`px-3 py-1 rounded-md text-sm ${linkTab === "controls" ? "bg-background border" : ""}`}
-                      onClick={() => setLinkTab("controls")}
-                    >
-                      Controls ({controlsCount})
-                    </button>
-                    <button
-                      className={`px-3 py-1 rounded-md text-sm ${linkTab === "policies" ? "bg-background border" : ""}`}
-                      onClick={() => setLinkTab("policies")}
-                    >
-                      Policies ({policiesCount})
-                    </button>
-                    <button
-                      className={`px-3 py-1 rounded-md text-sm ${linkTab === "findings" ? "bg-background border" : ""}`}
-                      onClick={() => setLinkTab("findings")}
-                    >
-                      Findings ({findingsCount})
-                    </button>
-                    <button
-                      className={`px-3 py-1 rounded-md text-sm ${linkTab === "tasks" ? "bg-background border" : ""}`}
-                      onClick={() => setLinkTab("tasks")}
-                    >
-                      Tasks ({tasksCount})
-                    </button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {linkTab === "controls" && (
-                  <div className="space-y-4">
-                    {canEdit && (
-                      <div className="flex items-center gap-2">
-                        <select
-                          className="border rounded-md h-9 px-2 bg-background"
-                          value={newControlId}
-                          onChange={(e) => setNewControlId(e.target.value)}
-                        >
-                          <option value="">Select a control</option>
-                          {controlsList
-                            .filter((c) => !linkedControls.some((lc) => lc.control_id === c.id))
-                            .map((c) => (
-                              <option key={c.id} value={c.id}>{c.code} — {c.description}</option>
-                            ))}
-                        </select>
-                        <Button size="sm" onClick={handleLinkControl} disabled={!newControlId}>Link</Button>
-                      </div>
-                    )}
-                    {linkedControls.length === 0 ? (
-                      <p className="text-muted-foreground">No linked controls</p>
-                    ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Code</TableHead>
-                            <TableHead>Description</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Evidence</TableHead>
-                            {canEdit && <TableHead className="text-right">Actions</TableHead>}
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {linkedControls.map((lc) => (
-                            <TableRow key={`${lc.risk_id}-${lc.control_id}`}>
-                              <TableCell className="font-medium">{lc.controls?.code}</TableCell>
-                              <TableCell>{lc.controls?.description}</TableCell>
-                              <TableCell><Badge variant="outline">{lc.controls?.status}</Badge></TableCell>
-                              <TableCell>
-                                {!lc.controls?.evidence_url ? (
-                                  <div className="inline-flex items-center gap-2 text-amber-600">
-                                    <span className="inline-flex items-center gap-1">
-                                      <FileWarning className="h-4 w-4" />
-                                      <span className="text-xs">Missing</span>
-                                    </span>
-                                    {canEdit && (
-                                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => handleUploadEvidenceInline(lc.control_id)}>Upload</Button>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <span className="text-xs text-muted-foreground">Provided</span>
+                </CardHeader>
+                <CardContent>
+                  <Tabs defaultValue="controls">
+                    <TabsList>
+                      <TabsTrigger value="controls">Controls ({controlsCount})</TabsTrigger>
+                      <TabsTrigger value="policies">Policies ({policiesCount})</TabsTrigger>
+                      <TabsTrigger value="tasks">Tasks ({tasksCount})</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="controls" className="space-y-4">
+                      {canEdit && (
+                        <div className="flex items-center gap-2">
+                          <select
+                            className="border rounded-md h-9 px-2 bg-background"
+                            value={newControlId}
+                            onChange={(e) => setNewControlId(e.target.value)}
+                          >
+                            <option value="">Select a control</option>
+                            {controlsList
+                              .filter((c) => !linkedControls.some((lc) => lc.control_id === c.id))
+                              .map((c) => (
+                                <option key={c.id} value={c.id}>{c.code} — {c.description}</option>
+                              ))}
+                          </select>
+                          <Button size="sm" onClick={handleLinkControl} disabled={!newControlId}>Link</Button>
+                        </div>
+                      )}
+                      {linkedControls.length === 0 ? (
+                        <p className="text-muted-foreground">No linked controls</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Code</TableHead>
+                              <TableHead>Description</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Evidence</TableHead>
+                              {canEdit && <TableHead className="text-right">Actions</TableHead>}
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {linkedControls.map((lc) => (
+                              <TableRow key={`${lc.risk_id}-${lc.control_id}`}>
+                                <TableCell className="font-medium">{lc.controls?.code}</TableCell>
+                                <TableCell>{lc.controls?.description}</TableCell>
+                                <TableCell><Badge variant="outline">{lc.controls?.status}</Badge></TableCell>
+                                <TableCell>
+                                  {!lc.controls?.evidence_url ? (
+                                    <div className="inline-flex items-center gap-2 text-amber-600">
+                                      <span className="inline-flex items-center gap-1">
+                                        <FileWarning className="h-4 w-4" />
+                                        <span className="text-xs">Missing</span>
+                                      </span>
+                                      {canEdit && (
+                                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => handleUploadEvidenceInline(lc.control_id)}>Upload</Button>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">Provided</span>
+                                  )}
+                                </TableCell>
+                                {canEdit && (
+                                  <TableCell className="text-right">
+                                    <Button variant="ghost" size="sm" onClick={() => handleUnlinkControl(lc.control_id)}>Unlink</Button>
+                                  </TableCell>
                                 )}
-                              </TableCell>
-                              {canEdit && (
-                                <TableCell className="text-right">
-                                  <Button variant="ghost" size="sm" onClick={() => handleUnlinkControl(lc.control_id)}>Unlink</Button>
-                                </TableCell>
-                              )}
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
-                  </div>
-                )}
-
-                {linkTab === "policies" && (
-                  <div className="space-y-4">
-                    {canEdit && (
-                      <div className="flex items-center gap-2">
-                        <select
-                          className="border rounded-md h-9 px-2 bg-background"
-                          value={newPolicyId}
-                          onChange={(e) => setNewPolicyId(e.target.value)}
-                        >
-                          <option value="">Select a policy</option>
-                          {policiesList
-                            .filter((p) => !linkedPolicies.some((lp) => lp.policy_id === p.id))
-                            .map((p) => (
-                              <option key={p.id} value={p.id}>{p.name} {p.version ? `v${p.version}` : ""}</option>
+                              </TableRow>
                             ))}
-                        </select>
-                        <Button size="sm" onClick={handleLinkPolicy} disabled={!newPolicyId}>Link</Button>
-                      </div>
-                    )}
-                    {linkedPolicies.length === 0 ? (
-                      <p className="text-muted-foreground">No linked policies</p>
-                    ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Version</TableHead>
-                            <TableHead>Status</TableHead>
-                            {canEdit && <TableHead className="text-right">Actions</TableHead>}
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {linkedPolicies.map((lp) => (
-                            <TableRow key={`${lp.risk_id}-${lp.policy_id}`}>
-                              <TableCell className="font-medium">{lp.policies?.name}</TableCell>
-                              <TableCell>{lp.policies?.version || "—"}</TableCell>
-                              <TableCell><Badge variant="outline">{lp.policies?.status}</Badge></TableCell>
-                              {canEdit && (
-                                <TableCell className="text-right">
-                                  <Button variant="ghost" size="sm" onClick={() => handleUnlinkPolicy(lp.policy_id)}>Unlink</Button>
-                                </TableCell>
-                              )}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </TabsContent>
+                    <TabsContent value="policies" className="space-y-4">
+                      {canEdit && (
+                        <div className="flex items-center gap-2">
+                          <select
+                            className="border rounded-md h-9 px-2 bg-background"
+                            value={newPolicyId}
+                            onChange={(e) => setNewPolicyId(e.target.value)}
+                          >
+                            <option value="">Select a policy</option>
+                            {policiesList
+                              .filter((p) => !linkedPolicies.some((lp) => lp.policy_id === p.id))
+                              .map((p) => (
+                                <option key={p.id} value={p.id}>{p.name} {p.version ? `v${p.version}` : ""}</option>
+                              ))}
+                          </select>
+                          <Button size="sm" onClick={handleLinkPolicy} disabled={!newPolicyId}>Link</Button>
+                        </div>
+                      )}
+                      {linkedPolicies.length === 0 ? (
+                        <p className="text-muted-foreground">No linked policies</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Name</TableHead>
+                              <TableHead>Version</TableHead>
+                              <TableHead>Status</TableHead>
+                              {canEdit && <TableHead className="text-right">Actions</TableHead>}
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
-                  </div>
-                )}
-
-                {linkTab === "findings" && (
-                  <div className="space-y-4">
-                    <div className="w-44">
-                      <Select value={findingsFilter} onValueChange={setFindingsFilter}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Filter status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All</SelectItem>
-                          <SelectItem value="open">Open</SelectItem>
-                          <SelectItem value="in_progress">In Progress</SelectItem>
-                          <SelectItem value="closed">Closed</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {canEdit && (
-                      <div className="grid grid-cols-2 gap-3 border rounded-md p-3">
-                        <div className="col-span-2">
-                          <Label htmlFor="finding-title" className="text-sm font-medium">Title</Label>
-                          <Input id="finding-title" className="mt-1" value={newFinding.title} onChange={(e) => setNewFinding({ ...newFinding, title: e.target.value })} />
-                        </div>
-                        <div className="col-span-2">
-                          <Label htmlFor="finding-description" className="text-sm font-medium">Description</Label>
-                          <Textarea id="finding-description" className="mt-1" value={newFinding.description} onChange={(e) => setNewFinding({ ...newFinding, description: e.target.value })} />
-                        </div>
-                        <div>
-                          <Label htmlFor="finding-severity" className="text-sm font-medium">Severity</Label>
-                          <select id="finding-severity" className="mt-1 w-full border rounded-md h-9 px-2 bg-background" value={newFinding.severity} onChange={(e) => setNewFinding({ ...newFinding, severity: e.target.value })}>
-                            <option value="low">low</option>
-                            <option value="medium">medium</option>
-                            <option value="high">high</option>
-                            <option value="critical">critical</option>
-                          </select>
-                        </div>
-                        <div>
-                          <Label htmlFor="finding-status" className="text-sm font-medium">Status</Label>
-                          <select id="finding-status" className="mt-1 w-full border rounded-md h-9 px-2 bg-background" value={newFinding.status} onChange={(e) => setNewFinding({ ...newFinding, status: e.target.value })}>
-                            <option value="open">open</option>
-                            <option value="in_progress">in_progress</option>
-                            <option value="closed">closed</option>
-                          </select>
-                        </div>
-                        <div>
-                          <Label htmlFor="finding-owner" className="text-sm font-medium">Owner</Label>
-                          <select id="finding-owner" className="mt-1 w-full border rounded-md h-9 px-2 bg-background" value={newFinding.owner} onChange={(e) => setNewFinding({ ...newFinding, owner: e.target.value })}>
-                            <option value="">Unassigned</option>
-                            {approvers.map((p) => (
-                              <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
+                          </TableHeader>
+                          <TableBody>
+                            {linkedPolicies.map((lp) => (
+                              <TableRow key={`${lp.risk_id}-${lp.policy_id}`}>
+                                <TableCell className="font-medium">{lp.policies?.name}</TableCell>
+                                <TableCell>{lp.policies?.version || "—"}</TableCell>
+                                <TableCell><Badge variant="outline">{lp.policies?.status}</Badge></TableCell>
+                                {canEdit && (
+                                  <TableCell className="text-right">
+                                    <Button variant="ghost" size="sm" onClick={() => handleUnlinkPolicy(lp.policy_id)}>Unlink</Button>
+                                  </TableCell>
+                                )}
+                              </TableRow>
                             ))}
-                          </select>
+                          </TableBody>
+                        </Table>
+                      )}
+                    </TabsContent>
+                    <TabsContent value="tasks" className="space-y-4">
+                      <div className="flex items-center gap-4">
+                        <div className="w-44">
+                          <Select value={tasksFilter} onValueChange={setTasksFilter}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Filter status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              <SelectItem value="open">Open</SelectItem>
+                              <SelectItem value="done">Done</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
-                        <div>
-                          <Label htmlFor="finding-sla" className="text-sm font-medium">SLA due date</Label>
-                          <Input id="finding-sla" type="date" className="mt-1" value={newFinding.sla_due_date} onChange={(e) => setNewFinding({ ...newFinding, sla_due_date: e.target.value })} />
-                        </div>
-                        <div className="col-span-2">
-                          <Button size="sm" onClick={handleAddFinding}>Add Finding</Button>
+                        <div className="flex items-center gap-2">
+                          <Switch id="my-tasks-only" checked={myTasksOnly} onCheckedChange={setMyTasksOnly} />
+                          <Label htmlFor="my-tasks-only" className="text-sm">My Tasks</Label>
                         </div>
                       </div>
-                    )}
-                    {findings.length === 0 ? (
-                      <p className="text-muted-foreground">No findings recorded yet—log audit or incident outcomes here.</p>
-                    ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Title</TableHead>
-                            <TableHead>Severity</TableHead>
-                            <TableHead>Owner</TableHead>
-                            <TableHead>SLA Due</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Reported</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {(findingsFilter === "all" ? findings : findings.filter((f) => f.status === findingsFilter)).map((f) => (
-                            <TableRow key={f.id}>
-                              <TableCell className="font-medium">{f.title}</TableCell>
-                              <TableCell>
-                                {(() => {
-                                  const sev = (f.severity || "").toLowerCase();
-                                  const sevClass = sev === "low"
-                                    ? "bg-green-100 text-green-700"
-                                    : sev === "medium"
-                                    ? "bg-yellow-100 text-yellow-800"
-                                    : sev === "high"
-                                    ? "bg-orange-100 text-orange-800"
-                                    : sev === "critical"
-                                    ? "bg-red-100 text-red-700"
-                                    : "bg-muted text-foreground";
-                                  return <Badge className={sevClass}>{f.severity}</Badge>;
-                                })()}
-                              </TableCell>
-                              <TableCell>{f.profiles?.full_name || (approvers.find((p) => p.id === f.owner)?.full_name) || "—"}</TableCell>
-                              <TableCell>{f.sla_due_date ? new Date(f.sla_due_date).toLocaleDateString() : "—"}</TableCell>
-                              <TableCell><Badge variant="outline">{f.status}</Badge></TableCell>
-                              <TableCell>{new Date(f.created_at).toLocaleDateString()}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
-                  </div>
-                )}
-
-                {linkTab === "tasks" && (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-4">
-                      <div className="w-44">
-                        <Select value={tasksFilter} onValueChange={setTasksFilter}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Filter status" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All</SelectItem>
-                            <SelectItem value="open">Open</SelectItem>
-                            <SelectItem value="done">Done</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Switch id="my-tasks-only" checked={myTasksOnly} onCheckedChange={setMyTasksOnly} />
-                        <Label htmlFor="my-tasks-only" className="text-sm">My Tasks</Label>
-                      </div>
-                    </div>
-                    {canEdit && (
-                      <div className="grid grid-cols-2 gap-3 border rounded-md p-3">
-                        <div className="col-span-2">
-                          <Label htmlFor="task-title" className="text-sm font-medium">Title</Label>
-                          <Input id="task-title" className="mt-1" value={newTask.title} onChange={(e) => setNewTask({ ...newTask, title: e.target.value })} />
-                        </div>
-                        <div>
-                          <Label htmlFor="task-assignee" className="text-sm font-medium">Assign to</Label>
-                          <select id="task-assignee" className="mt-1 w-full border rounded-md h-9 px-2 bg-background" value={newTask.assigned_to} onChange={(e) => setNewTask({ ...newTask, assigned_to: e.target.value })}>
-                            <option value="">Unassigned</option>
-                            {approvers.map((p) => (
-                              <option key={p.id} value={p.id}>{p.full_name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <Label htmlFor="task-due" className="text-sm font-medium">Due date</Label>
-                          <Input id="task-due" type="date" className="mt-1" value={newTask.due_date} onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })} />
-                        </div>
-                        <div>
-                          <Label htmlFor="task-link-target" className="text-sm font-medium">Link to</Label>
-                          <select id="task-link-target" className="mt-1 w-full border rounded-md h-9 px-2 bg-background" value={taskLinkTarget} onChange={(e) => setTaskLinkTarget(e.target.value)}>
-                            <option value="risk">Risk</option>
-                            <option value="treatment_plan">Treatment Plan</option>
-                          </select>
-                        </div>
-                        {taskLinkTarget === "treatment_plan" && (
+                      {canEdit && (
+                        <div className="grid grid-cols-2 gap-3 border rounded-md p-3">
+                          <div className="col-span-2">
+                            <Label htmlFor="task-title" className="text-sm font-medium">Title</Label>
+                            <Input id="task-title" className="mt-1" value={newTask.title} onChange={(e) => setNewTask({ ...newTask, title: e.target.value })} />
+                          </div>
                           <div>
-                            <Label htmlFor="task-plan" className="text-sm font-medium">Plan</Label>
-                            <select id="task-plan" className="mt-1 w-full border rounded-md h-9 px-2 bg-background" value={taskPlanId} onChange={(e) => setTaskPlanId(e.target.value)}>
-                              <option value="">Select a plan</option>
-                              {treatmentPlans.map((p) => (
-                                <option key={p.id} value={p.id}>{p.action_title}</option>
+                            <Label htmlFor="task-assignee" className="text-sm font-medium">Assign to</Label>
+                            <select id="task-assignee" className="mt-1 w-full border rounded-md h-9 px-2 bg-background" value={newTask.assigned_to} onChange={(e) => setNewTask({ ...newTask, assigned_to: e.target.value })}>
+                              <option value="">Unassigned</option>
+                              {approvers.map((p) => (
+                                <option key={p.id} value={p.id}>{p.full_name}</option>
                               ))}
                             </select>
                           </div>
-                        )}
-                        <div className="col-span-2">
-                          <Button size="sm" onClick={handleAddTask}>Add Task</Button>
+                          <div>
+                            <Label htmlFor="task-due" className="text-sm font-medium">Due date</Label>
+                            <Input id="task-due" type="date" className="mt-1" value={newTask.due_date} onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })} />
+                          </div>
+                          <div>
+                            <Label htmlFor="task-link-target" className="text-sm font-medium">Link to</Label>
+                            <select id="task-link-target" className="mt-1 w-full border rounded-md h-9 px-2 bg-background" value={taskLinkTarget} onChange={(e) => setTaskLinkTarget(e.target.value)}>
+                              <option value="risk">Risk</option>
+                              <option value="treatment_plan">Treatment Plan</option>
+                            </select>
+                          </div>
+                          {taskLinkTarget === "treatment_plan" && (
+                            <div>
+                              <Label htmlFor="task-plan" className="text-sm font-medium">Plan</Label>
+                              <select id="task-plan" className="mt-1 w-full border rounded-md h-9 px-2 bg-background" value={taskPlanId} onChange={(e) => setTaskPlanId(e.target.value)}>
+                                <option value="">Select a plan</option>
+                                {treatmentPlans.map((p) => (
+                                  <option key={p.id} value={p.id}>{p.action_title}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          <div className="col-span-2">
+                            <Button size="sm" onClick={handleAddTask}>Add Task</Button>
+                          </div>
                         </div>
+                      )}
+                      {relatedTasks.length === 0 ? (
+                        <p className="text-muted-foreground">No linked tasks</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <Table className="min-w-full">
+                            <colgroup>
+                              <col style={{ width: "220px" }} />
+                              <col style={{ width: "240px" }} />
+                              <col style={{ width: "160px" }} />
+                              <col style={{ width: "160px" }} />
+                            </colgroup>
+                            <TableHeader>
+                              <TableRow className="bg-slate-50/60">
+                                <TableHead className="text-left">Title</TableHead>
+                                <TableHead className="text-left">Assigned To</TableHead>
+                                <TableHead className="text-center">Status</TableHead>
+                                <TableHead className="text-center">Due</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {(tasksFilter === "all" ? relatedTasks : relatedTasks.filter((t) => t.status === tasksFilter))
+                                .filter((t) => !myTasksOnly || (currentUserId && t.assigned_to === currentUserId))
+                                .map((t) => (
+                                <TableRow key={t.id} className="hover:bg-slate-50">
+                                  <TableCell className="font-medium truncate" title={t.title}>{t.title}</TableCell>
+                                  <TableCell className="whitespace-nowrap">{t.profiles?.full_name || "Unassigned"}</TableCell>
+                                  <TableCell className="text-center"><Badge variant="outline">{t.status}</Badge></TableCell>
+                                  <TableCell className="text-center whitespace-nowrap">{t.due_date ? new Date(t.due_date).toLocaleDateString() : "—"}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </TabsContent>
+                  </Tabs>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Findings</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="w-44">
+                    <Select value={findingsFilter} onValueChange={setFindingsFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Filter status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="open">Open</SelectItem>
+                        <SelectItem value="in_progress">In Progress</SelectItem>
+                        <SelectItem value="closed">Closed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {canEdit && (
+                    <div className="grid grid-cols-2 gap-3 border rounded-md p-3">
+                      <div className="col-span-2">
+                        <Label htmlFor="finding-title" className="text-sm font-medium">Title</Label>
+                        <Input id="finding-title" className="mt-1" value={newFinding.title} onChange={(e) => setNewFinding({ ...newFinding, title: e.target.value })} />
                       </div>
-                    )}
-                    {relatedTasks.length === 0 ? (
-                      <p className="text-muted-foreground">No linked tasks</p>
-                    ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Title</TableHead>
-                            <TableHead>Assigned To</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Due</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {(tasksFilter === "all" ? relatedTasks : relatedTasks.filter((t) => t.status === tasksFilter))
-                            .filter((t) => !myTasksOnly || (currentUserId && t.assigned_to === currentUserId))
-                            .map((t) => (
-                            <TableRow key={t.id}>
-                              <TableCell className="font-medium">{t.title}</TableCell>
-                              <TableCell>{t.profiles?.full_name || "Unassigned"}</TableCell>
-                              <TableCell><Badge variant="outline">{t.status}</Badge></TableCell>
-                              <TableCell>{t.due_date ? new Date(t.due_date).toLocaleDateString() : "—"}</TableCell>
-                            </TableRow>
+                      <div>
+                        <Label htmlFor="finding-owner" className="text-sm font-medium">Owner</Label>
+                        <select id="finding-owner" className="mt-1 w-full border rounded-md h-9 px-2 bg-background" value={newFinding.owner} onChange={(e) => setNewFinding({ ...newFinding, owner: e.target.value })}>
+                          <option value="">Select owner</option>
+                          {approvers.map((p) => (
+                            <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
                           ))}
-                        </TableBody>
-                      </Table>
+                        </select>
+                      </div>
+                      <div>
+                        <Label htmlFor="finding-severity" className="text-sm font-medium">Severity</Label>
+                        <select id="finding-severity" className="mt-1 w-full border rounded-md h-9 px-2 bg-background" value={newFinding.severity} onChange={(e) => setNewFinding({ ...newFinding, severity: e.target.value })}>
+                          <option value="low">Low</option>
+                          <option value="medium">Medium</option>
+                          <option value="high">High</option>
+                          <option value="critical">Critical</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label htmlFor="finding-status" className="text-sm font-medium">Status</Label>
+                        <select id="finding-status" className="mt-1 w-full border rounded-md h-9 px-2 bg-background" value={newFinding.status} onChange={(e) => setNewFinding({ ...newFinding, status: e.target.value })}>
+                          <option value="open">Open</option>
+                          <option value="in_progress">In Progress</option>
+                          <option value="closed">Closed</option>
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        <Label htmlFor="finding-desc" className="text-sm font-medium">Description</Label>
+                        <Textarea id="finding-desc" className="mt-1" rows={3} value={newFinding.description} onChange={(e) => setNewFinding({ ...newFinding, description: e.target.value })} />
+                      </div>
+                      <div>
+                        <Label htmlFor="finding-sla" className="text-sm font-medium">SLA due date</Label>
+                        <Input id="finding-sla" type="date" className="mt-1" value={newFinding.sla_due_date} onChange={(e) => setNewFinding({ ...newFinding, sla_due_date: e.target.value })} />
+                      </div>
+                      <div className="col-span-2">
+                        <Button size="sm" onClick={handleAddFinding}>Add Finding</Button>
+                      </div>
+                    </div>
+                  )}
+                  {findings.length === 0 ? (
+                    <p className="text-muted-foreground">No findings recorded yet—log audit or incident outcomes here.</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Title</TableHead>
+                          <TableHead>Severity</TableHead>
+                          <TableHead>Owner</TableHead>
+                          <TableHead>SLA Due</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Reported</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(findingsFilter === "all" ? findings : findings.filter((f) => f.status === findingsFilter)).map((f) => (
+                          <TableRow key={f.id}>
+                            <TableCell className="font-medium">{f.title}</TableCell>
+                            <TableCell>
+                              {(() => {
+                                const sev = (f.severity || "").toLowerCase();
+                                const sevClass = sev === "low"
+                                  ? "bg-green-100 text-green-700"
+                                  : sev === "medium"
+                                  ? "bg-yellow-100 text-yellow-800"
+                                  : sev === "high"
+                                  ? "bg-orange-100 text-orange-800"
+                                  : sev === "critical"
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-muted text-foreground";
+                                return <Badge className={sevClass}>{f.severity}</Badge>;
+                              })()}
+                            </TableCell>
+                            <TableCell>{f.profiles?.full_name || (approvers.find((p) => p.id === f.owner)?.full_name) || "—"}</TableCell>
+                            <TableCell>{f.sla_due_date ? new Date(f.sla_due_date).toLocaleDateString() : "—"}</TableCell>
+                            <TableCell><Badge variant="outline">{f.status}</Badge></TableCell>
+                            <TableCell>{new Date(f.created_at).toLocaleDateString()}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <CardTitle>Acceptance</CardTitle>
+                    {canEdit && (
+                      <Button
+                        size="sm"
+                        disabled={displayStatus === "requested" || displayStatus === "under_review"}
+                        onClick={() => setAcceptFormOpen((v) => !v)}
+                      >
+                        {displayStatus === "requested" ? "Awaiting Approval" : displayStatus === "under_review" ? "Under Review" : displayStatus === "approved" ? "Request Renewal" : displayStatus === "rejected" ? "Resubmit Request" : "Request Acceptance"}
+                      </Button>
                     )}
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Status</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge variant="outline">{displayStatusLabel}</Badge>
+                        {isExpired && <Badge variant="destructive">Expired</Badge>}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Approver</p>
+                      <p className="mt-1">{approverProfile ? `${approverProfile.full_name} (${approverProfile.role})` : "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Expiry</p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span>{risk.acceptance_expiry ? new Date(risk.acceptance_expiry).toLocaleDateString() : "—"}</span>
+                        {(() => {
+                          if (!risk.acceptance_expiry) return null;
+                          const today = new Date();
+                          const expiry = new Date(risk.acceptance_expiry);
+                          today.setHours(0,0,0,0);
+                          expiry.setHours(0,0,0,0);
+                          const msPerDay = 24 * 60 * 60 * 1000;
+                          const daysLeft = Math.max(0, Math.round((expiry.getTime() - today.getTime()) / msPerDay));
+                          return (
+                            <span className={`text-xs ${daysLeft <= 1 ? "text-red-600" : daysLeft <= 7 ? "text-red-500" : daysLeft <= 14 ? "text-amber-600" : "text-muted-foreground"}`}>{daysLeft} days left</span>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                  {displayStatus === "under_review" && canDecideAcceptance && (
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-sm font-medium">Decision comment (optional)</label>
+                        <Textarea
+                          className="mt-1"
+                          value={decisionComment}
+                          onChange={(e) => setDecisionComment(e.target.value)}
+                          placeholder="Add context for your approval or rejection"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" disabled={deciding} onClick={handleApproveAcceptance}>Approve</Button>
+                        <Button size="sm" disabled={deciding} variant="destructive" onClick={handleRejectAcceptance}>Reject</Button>
+                      </div>
+                    </div>
+                  )}
+                  {acceptFormOpen && canEdit && (
+                    <div className="space-y-3 border rounded-md p-3">
+                      <p className="text-sm font-medium text-muted-foreground">Acceptance Criteria</p>
+                      <div>
+                        <label className="text-sm font-medium">Approver</label>
+                        <select
+                          className="mt-1 w-full border rounded-md h-9 px-2 bg-background"
+                          value={acceptForm.approver}
+                          onChange={(e) => setAcceptForm({ ...acceptForm, approver: e.target.value })}
+                        >
+                          <option value="">Select approver</option>
+                          {approvers.map((p) => (
+                            <option key={p.id} value={p.id}>{p.full_name} ({p.role})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Rationale</label>
+                        <Textarea
+                          className="mt-1"
+                          value={acceptForm.rationale}
+                          onChange={(e) => setAcceptForm({ ...acceptForm, rationale: e.target.value })}
+                          placeholder="Justification for accepting this risk"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Expiry date</label>
+                        <Input
+                          type="date"
+                          className="mt-1"
+                          value={acceptForm.expiry}
+                          onChange={(e) => setAcceptForm({ ...acceptForm, expiry: e.target.value })}
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={handleRequestAcceptance}>Submit request</Button>
+                        <Button size="sm" variant="outline" onClick={() => setAcceptFormOpen(false)}>Cancel</Button>
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Audit Trail</p>
+                    {acceptanceLogs.length === 0 ? (
+                      <p className="text-muted-foreground mt-1">No acceptance activity</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <Table className="mt-2 min-w-full">
+                          <colgroup>
+                            <col style={{ width: "180px" }} />
+                            <col style={{ width: "160px" }} />
+                            <col style={{ width: "220px" }} />
+                            <col style={{ width: "300px" }} />
+                            <col style={{ width: "160px" }} />
+                          </colgroup>
+                          <TableHeader>
+                            <TableRow className="bg-slate-50/60">
+                              <TableHead className="text-left">Date</TableHead>
+                              <TableHead className="text-left">Action</TableHead>
+                              <TableHead className="text-left">Actor</TableHead>
+                              <TableHead className="text-left">Rationale</TableHead>
+                              <TableHead className="text-center">Expiry</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {acceptanceLogs.map((log) => (
+                              <TableRow key={log.id} className="hover:bg-slate-50">
+                                <TableCell className="whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</TableCell>
+                                <TableCell className="whitespace-nowrap">{log.action}</TableCell>
+                                <TableCell className="whitespace-nowrap">{log.profiles?.full_name || "—"}</TableCell>
+                                <TableCell className="truncate" title={log.rationale || "—"}>{log.rationale || "—"}</TableCell>
+                                <TableCell className="text-center whitespace-nowrap">{log.expiry ? new Date(log.expiry).toLocaleDateString() : "—"}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Activity</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Reviews</p>
+                    {reviewLogs.length === 0 ? (
+                      <p className="text-muted-foreground">No reviews yet</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <Table className="mt-2 min-w-full">
+                          <colgroup>
+                            <col style={{ width: "200px" }} />
+                            <col style={{ width: "240px" }} />
+                            <col />
+                          </colgroup>
+                          <TableHeader>
+                            <TableRow className="bg-slate-50/60">
+                              <TableHead className="text-left">Date</TableHead>
+                              <TableHead className="text-left">Reviewer</TableHead>
+                              <TableHead className="text-left">Note</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {reviewLogs.map((log: any) => (
+                              <TableRow key={log.id} className="hover:bg-slate-50">
+                                <TableCell className="whitespace-nowrap">{new Date(log.reviewed_at).toLocaleString()}</TableCell>
+                                <TableCell className="whitespace-nowrap">{log.profiles?.full_name || "—"}</TableCell>
+                                <TableCell className="truncate" title={log.note || "—"}>{log.note || "—"}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Audit Changes</p>
+                    {auditLogs.length === 0 ? (
+                      <p className="text-muted-foreground">No audit changes recorded</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <Table className="mt-2 min-w-full">
+                          <colgroup>
+                            <col style={{ width: "180px" }} />
+                            <col style={{ width: "220px" }} />
+                            <col />
+                          </colgroup>
+                          <TableHeader>
+                            <TableRow className="bg-slate-50/60">
+                              <TableHead className="text-left">Date</TableHead>
+                              <TableHead className="text-left">Actor</TableHead>
+                              <TableHead className="text-left">Action</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {auditLogs.map((l: any) => (
+                              <TableRow key={l.id} className="hover:bg-slate-50">
+                                <TableCell className="whitespace-nowrap">{new Date(l.created_at).toLocaleString()}</TableCell>
+                                <TableCell className="whitespace-nowrap">{l.actor_email || "—"}</TableCell>
+                                <TableCell className="truncate" title={l.action}>{l.action}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
         </SheetContent>
       </Sheet>
 

@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
+import { useUserRole } from "@/hooks/useUserRole";
 
 interface RiskDialogProps {
   open: boolean;
@@ -31,6 +32,8 @@ interface RiskDialogProps {
 export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogProps) => {
   const [loading, setLoading] = useState(false);
   const [owners, setOwners] = useState<any[]>([]);
+  const { role } = useUserRole();
+  const canEdit = role === "admin" || role === "manager";
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -114,6 +117,11 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    if (!canEdit) {
+      setLoading(false);
+      toast({ variant: "destructive", title: "Read-only", description: "Your role cannot create or edit risks." });
+      return;
+    }
 
     // Validation: require inherent if residual present; residual must not exceed inherent
     const residualLikelihood = parseInt(formData.likelihood);
@@ -156,6 +164,8 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
       ...formData,
       likelihood: residualLikelihood,
       impact: residualImpact,
+      residual_likelihood: residualLikelihood,
+      residual_impact: residualImpact,
       owner: formData.owner || null,
       inherent_likelihood: formData.inherent_likelihood ? parseInt(formData.inherent_likelihood) : null,
       inherent_impact: formData.inherent_impact ? parseInt(formData.inherent_impact) : null,
@@ -216,6 +226,7 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
               id="title"
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+              disabled={!canEdit}
               required
             />
           </div>
@@ -223,7 +234,7 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="delegate_owner">Delegate</Label>
-              <Select value={formData.delegate_owner} onValueChange={(value) => setFormData({ ...formData, delegate_owner: value })}>
+              <Select value={formData.delegate_owner} onValueChange={(value) => setFormData({ ...formData, delegate_owner: value })} disabled={!canEdit}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select delegate (optional)" />
                 </SelectTrigger>
@@ -243,6 +254,7 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
                 type="date"
                 value={formData.next_review_date || ""}
                 onChange={(e) => setFormData({ ...formData, next_review_date: e.target.value })}
+                disabled={!canEdit}
               />
             </div>
           </div>
@@ -253,6 +265,7 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
               id="description"
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              disabled={!canEdit}
               rows={4}
             />
           </div>
@@ -260,7 +273,7 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Inherent Likelihood</Label>
-              <Select value={formData.inherent_likelihood} onValueChange={(value) => setFormData({ ...formData, inherent_likelihood: value })}>
+              <Select value={formData.inherent_likelihood} onValueChange={(value) => setFormData({ ...formData, inherent_likelihood: value })} disabled={!canEdit}>
                 <SelectTrigger>
                   <SelectValue placeholder="optional" />
                 </SelectTrigger>
@@ -275,7 +288,7 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
             </div>
             <div className="space-y-2">
               <Label>Inherent Impact</Label>
-              <Select value={formData.inherent_impact} onValueChange={(value) => setFormData({ ...formData, inherent_impact: value })}>
+              <Select value={formData.inherent_impact} onValueChange={(value) => setFormData({ ...formData, inherent_impact: value })} disabled={!canEdit}>
                 <SelectTrigger>
                   <SelectValue placeholder="optional" />
                 </SelectTrigger>
@@ -293,26 +306,26 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="category">Category</Label>
-              <Input id="category" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} />
+              <Input id="category" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} disabled={!canEdit} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="department">Dept.</Label>
-              <Input id="department" value={formData.department} onChange={(e) => setFormData({ ...formData, department: e.target.value })} />
+              <Input id="department" value={formData.department} onChange={(e) => setFormData({ ...formData, department: e.target.value })} disabled={!canEdit} />
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="cause">Cause</Label>
-              <Input id="cause" value={formData.cause} onChange={(e) => setFormData({ ...formData, cause: e.target.value })} />
+              <Input id="cause" value={formData.cause} onChange={(e) => setFormData({ ...formData, cause: e.target.value })} disabled={!canEdit} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="consequence">Consequence</Label>
-              <Input id="consequence" value={formData.consequence} onChange={(e) => setFormData({ ...formData, consequence: e.target.value })} />
+              <Input id="consequence" value={formData.consequence} onChange={(e) => setFormData({ ...formData, consequence: e.target.value })} disabled={!canEdit} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="affected_asset">Affected Asset/System</Label>
-              <Input id="affected_asset" value={formData.affected_asset} onChange={(e) => setFormData({ ...formData, affected_asset: e.target.value })} />
+              <Input id="affected_asset" value={formData.affected_asset} onChange={(e) => setFormData({ ...formData, affected_asset: e.target.value })} disabled={!canEdit} />
             </div>
           </div>
 
@@ -323,7 +336,7 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="owner">Owner</Label>
-              <Select value={formData.owner} onValueChange={(value) => setFormData({ ...formData, owner: value })}>
+              <Select value={formData.owner} onValueChange={(value) => setFormData({ ...formData, owner: value })} disabled={!canEdit}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select owner" />
                 </SelectTrigger>
@@ -339,7 +352,7 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
 
             <div className="space-y-2">
               <Label htmlFor="status">Status</Label>
-              <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })}>
+              <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })} disabled={!canEdit}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -373,7 +386,7 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <Select value={formData.likelihood} onValueChange={(value) => setFormData({ ...formData, likelihood: value })}>
+              <Select value={formData.likelihood} onValueChange={(value) => setFormData({ ...formData, likelihood: value })} disabled={!canEdit}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -403,7 +416,7 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <Select value={formData.impact} onValueChange={(value) => setFormData({ ...formData, impact: value })}>
+              <Select value={formData.impact} onValueChange={(value) => setFormData({ ...formData, impact: value })} disabled={!canEdit}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -422,7 +435,7 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="category">Category</Label>
-              <Select value={formData.category || ""} onValueChange={(value) => setFormData({ ...formData, category: value })}>
+              <Select value={formData.category || ""} onValueChange={(value) => setFormData({ ...formData, category: value })} disabled={!canEdit}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
@@ -442,7 +455,7 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
             </div>
             <div className="space-y-2">
               <Label htmlFor="department">Department</Label>
-              <Select value={formData.department || ""} onValueChange={(value) => setFormData({ ...formData, department: value })}>
+              <Select value={formData.department || ""} onValueChange={(value) => setFormData({ ...formData, department: value })} disabled={!canEdit}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select department" />
                 </SelectTrigger>
@@ -469,11 +482,11 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2 col-span-2">
                 <Label htmlFor="closure_rationale">Closure Rationale</Label>
-                <Textarea id="closure_rationale" value={formData.closure_rationale || ""} onChange={(e) => setFormData({ ...formData, closure_rationale: e.target.value })} />
+                <Textarea id="closure_rationale" value={formData.closure_rationale || ""} onChange={(e) => setFormData({ ...formData, closure_rationale: e.target.value })} disabled={!canEdit} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="closure_date">Closure Date</Label>
-                <Input id="closure_date" type="date" value={formData.closure_date || ""} onChange={(e) => setFormData({ ...formData, closure_date: e.target.value })} />
+                <Input id="closure_date" type="date" value={formData.closure_date || ""} onChange={(e) => setFormData({ ...formData, closure_date: e.target.value })} disabled={!canEdit} />
               </div>
             </div>
           )}
@@ -482,7 +495,7 @@ export const RiskDialog = ({ open, onOpenChange, onSuccess, risk }: RiskDialogPr
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading || !canEdit}>
               {loading ? "Saving..." : risk ? "Update" : "Create"}
             </Button>
           </div>

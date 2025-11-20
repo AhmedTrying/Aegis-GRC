@@ -5,6 +5,8 @@ import { recordAudit } from "./audit";
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 type OrgRow = Database["public"]["Tables"]["organizations"]["Row"];
 
+let bootstrapOrgInflight: Promise<{ org: OrgRow | null; profile: ProfileRow | null } | null> | null = null;
+
 function deriveOrgName(email: string | null, fullName: string | null): string {
   const nameFromFull = fullName ? `${fullName.split(" ")[0]}'s Organization` : "New Organization";
   if (!email) return nameFromFull;
@@ -158,16 +160,29 @@ export async function resolveCurrentOrg(): Promise<{
   }
 
   let orgName = deriveOrgName(profile.email ?? null, profile.full_name ?? null);
-  try {
-    const raw = typeof window !== "undefined" ? window.localStorage.getItem("pending_org") : null;
-    if (raw) {
-      const pending = JSON.parse(raw);
-      if (pending && typeof pending.name === "string" && pending.name.trim().length > 1) {
-        orgName = pending.name.trim();
+  const metaName = (auth?.user?.user_metadata as any)?.org_pending_name as string | undefined;
+  if (typeof metaName === "string" && metaName.trim().length > 1) {
+    orgName = metaName.trim();
+  } else {
+    try {
+      const raw = typeof window !== "undefined" ? window.localStorage.getItem("pending_org") : null;
+      if (raw) {
+        const pending = JSON.parse(raw);
+        if (pending && typeof pending.name === "string" && pending.name.trim().length > 1) {
+          orgName = pending.name.trim();
+        }
       }
-    }
-  } catch { void 0; }
-  const { data: fn, error: fnErr } = await supabase.functions.invoke("bootstrap-org", { body: { org_name: orgName } });
+    } catch { void 0; }
+  }
+  if (!bootstrapOrgInflight) {
+    bootstrapOrgInflight = supabase
+      .functions
+      .invoke("bootstrap-org", { body: { org_name: orgName } })
+      .then(({ data }) => (data as any) || null)
+      .finally(() => { bootstrapOrgInflight = null; });
+  }
+  const fn = await bootstrapOrgInflight;
+  const fnErr = null;
   if (fnErr) {
     return { orgId: null, org: null, profile, bootstrapped: false };
   }
@@ -202,18 +217,18 @@ export async function getRequiredOrgId(): Promise<string> {
   const { data: auth } = await supabase.auth.getUser();
   const user = auth?.user || null;
   if (!user) {
-    throw new OrgResolutionError("Not authenticated", "NOT_AUTHENTICATED");
+    throw new OrgResolutionError("Please log in to access this feature", "NOT_AUTHENTICATED");
   }
   const { orgId, profile, bootstrapped } = await resolveCurrentOrg();
   if (orgId) return orgId;
   if (!profile) {
-    throw new OrgResolutionError("Profile not found", "PROFILE_NOT_FOUND");
+    throw new OrgResolutionError("User profile not found. Please contact support.", "PROFILE_NOT_FOUND");
   }
   // If we tried to bootstrap and still have no org, surface a clear error
   if (bootstrapped === true && !orgId) {
-    throw new OrgResolutionError("Failed to bootstrap organization", "BOOTSTRAP_FAILED");
+    throw new OrgResolutionError("Failed to create organization. Please contact support.", "BOOTSTRAP_FAILED");
   }
-  throw new OrgResolutionError("No organization linked to this profile", "ORG_NOT_FOUND");
+  throw new OrgResolutionError("No organization linked to this profile. Please contact support.", "ORG_NOT_FOUND");
 }
 
 export async function requireAdminInOrg(): Promise<{ orgId: string; profileId: string }> {

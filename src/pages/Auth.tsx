@@ -20,8 +20,6 @@ const Auth = () => {
   const [orgLoading, setOrgLoading] = useState(false);
   const [orgForm, setOrgForm] = useState({
     orgName: "",
-    legalName: "",
-    industry: "",
     adminName: "",
     adminEmail: "",
     adminPassword: "",
@@ -88,24 +86,12 @@ const Auth = () => {
     e.preventDefault();
     setOrgLoading(true);
     const name = orgForm.orgName.trim();
-    const legal = orgForm.legalName.trim();
-    const industry = orgForm.industry.trim();
     const fullName = orgForm.adminName.trim();
     const email = orgForm.adminEmail.trim();
     const password = orgForm.adminPassword;
     const confirm = orgForm.adminConfirmPassword;
     if (!name || name.length < 2) {
       toast({ variant: "destructive", title: "Invalid organization name", description: "Provide a valid organization name." });
-      setOrgLoading(false);
-      return;
-    }
-    if (!legal || legal.length < 2) {
-      toast({ variant: "destructive", title: "Invalid legal name", description: "Provide a valid legal name." });
-      setOrgLoading(false);
-      return;
-    }
-    if (!industry) {
-      toast({ variant: "destructive", title: "Industry required", description: "Select or enter an industry." });
       setOrgLoading(false);
       return;
     }
@@ -136,14 +122,14 @@ const Auth = () => {
       return;
     }
     try {
-      localStorage.setItem("pending_org", JSON.stringify({ name, legal, industry }));
+      localStorage.setItem("pending_org", JSON.stringify({ name }));
     } catch { void 0; }
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: `${window.location.origin}/dashboard`,
-        data: { full_name: fullName },
+        data: { full_name: fullName, org_pending_name: name },
       },
     });
     if (error) {
@@ -331,26 +317,6 @@ const Auth = () => {
                         id="org_name" 
                         value={orgForm.orgName} 
                         onChange={(e)=>setOrgForm({ ...orgForm, orgName: e.target.value })} 
-                        required 
-                        className="h-12 text-base border-slate-200 focus:border-blue-500 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="legal_name" className="text-sm font-medium text-slate-700">Legal Name</Label>
-                      <Input 
-                        id="legal_name" 
-                        value={orgForm.legalName} 
-                        onChange={(e)=>setOrgForm({ ...orgForm, legalName: e.target.value })} 
-                        required 
-                        className="h-12 text-base border-slate-200 focus:border-blue-500 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="industry" className="text-sm font-medium text-slate-700">Industry</Label>
-                      <Input 
-                        id="industry" 
-                        value={orgForm.industry} 
-                        onChange={(e)=>setOrgForm({ ...orgForm, industry: e.target.value })} 
                         required 
                         className="h-12 text-base border-slate-200 focus:border-blue-500 focus:ring-blue-500"
                       />

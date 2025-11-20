@@ -181,6 +181,7 @@ CREATE TABLE public.organizations (
   scim_status text DEFAULT 'disabled'::text CHECK (scim_status = ANY (ARRAY['disabled'::text, 'ready'::text, 'active'::text])),
   scim_provisioning_token text,
   scim_last_sync_at timestamp with time zone,
+  risk_appetite_threshold integer DEFAULT 12,
   CONSTRAINT organizations_pkey PRIMARY KEY (id),
   CONSTRAINT organizations_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.profiles(id)
 );
@@ -379,13 +380,16 @@ CREATE TABLE public.risks (
   acceptance_decided_at timestamp with time zone,
   closure_rationale text,
   closure_date date,
-  org_id uuid,
+  org_id uuid NOT NULL,
   acceptance_requester uuid,
+  residual_likelihood integer CHECK (residual_likelihood >= 1 AND residual_likelihood <= 5),
+  residual_impact integer CHECK (residual_impact >= 1 AND residual_impact <= 5),
   CONSTRAINT risks_pkey PRIMARY KEY (id),
   CONSTRAINT risks_acceptance_requester_fkey FOREIGN KEY (acceptance_requester) REFERENCES public.profiles(id),
   CONSTRAINT risks_owner_fkey FOREIGN KEY (owner) REFERENCES public.profiles(id),
   CONSTRAINT risks_delegate_owner_fkey FOREIGN KEY (delegate_owner) REFERENCES public.profiles(id),
-  CONSTRAINT risks_acceptance_approver_fkey FOREIGN KEY (acceptance_approver) REFERENCES public.profiles(id)
+  CONSTRAINT risks_acceptance_approver_fkey FOREIGN KEY (acceptance_approver) REFERENCES public.profiles(id),
+  CONSTRAINT risks_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.organizations(id)
 );
 CREATE TABLE public.tasks (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

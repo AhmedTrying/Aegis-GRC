@@ -30,31 +30,85 @@ const Frameworks = () => {
   const [mappings, setMappings] = useState<any[]>([]);
   const [mapFilterTarget, setMapFilterTarget] = useState<string>("");
   const [mapFilterCode, setMapFilterCode] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchFrameworks();
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        await fetchFrameworks();
+      } catch (e: any) {
+        console.error("Failed to load frameworks data:", e);
+        setError(e?.message || "Failed to load data");
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadData();
   }, []);
 
   const fetchFrameworks = async () => {
-    const orgId = await getRequiredOrgId();
-    const { data: fw } = await supabase
-      .from("frameworks")
-      .select("id, name, description")
-      .eq("org_id", orgId)
-      .order("name");
-    setFrameworks(fw || []);
-    if (fw && fw.length > 0) {
-      const map: Record<string, any[]> = {};
-      for (const f of fw) {
-        const { data: ctrls } = await supabase
-          .from("controls")
-          .select("id, code, description, status")
-          .eq("framework_id", f.id)
-          .eq("org_id", orgId)
-          .order("code");
-        map[f.id] = ctrls || [];
+    try {
+      console.log("Fetching frameworks...");
+      const orgId = await getRequiredOrgId();
+      console.log("Organization ID resolved for frameworks:", orgId);
+      
+      if (!orgId) {
+        console.error("No organization ID found for frameworks");
+        toast({ variant: "destructive", title: "Error", description: "No organization found" });
+        setFrameworks([]);
+        return;
       }
-      setControlsByFramework(map);
+
+      const { data: fw, error: fwError } = await supabase
+        .from("frameworks")
+        .select("id, name, description")
+        .eq("org_id", orgId)
+        .order("name");
+      
+      console.log("Frameworks query result:", { fw, fwError });
+      
+      if (fwError) {
+        console.error("Error fetching frameworks:", fwError);
+        toast({ variant: "destructive", title: "Error", description: `Failed to fetch frameworks: ${fwError.message}` });
+        setFrameworks([]);
+        return;
+      }
+      
+      const frameworksData = fw || [];
+      console.log("Frameworks data:", frameworksData);
+      setFrameworks(frameworksData);
+      
+      if (frameworksData && frameworksData.length > 0) {
+        const map: Record<string, any[]> = {};
+        for (const f of frameworksData) {
+          const { data: ctrls, error: ctrlError } = await supabase
+            .from("controls")
+            .select("id, code, description, status")
+            .eq("framework_id", f.id)
+            .eq("org_id", orgId)
+            .order("code");
+          
+          if (ctrlError) {
+            console.error(`Error fetching controls for framework ${f.id}:`, ctrlError);
+            map[f.id] = [];
+          } else {
+            map[f.id] = ctrls || [];
+            console.log(`Controls for framework ${f.id}:`, ctrls);
+          }
+        }
+        setControlsByFramework(map);
+      } else {
+        setControlsByFramework({});
+      }
+    } catch (e: any) {
+      console.error("Exception in fetchFrameworks:", e);
+      toast({ variant: "destructive", title: "Error", description: e?.message || "Failed to fetch frameworks" });
+      setFrameworks([]);
+      setControlsByFramework({});
     }
   };
 
@@ -155,6 +209,30 @@ const Frameworks = () => {
       fetchMappings(selectedFramework);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading frameworks...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="text-destructive mb-2">⚠️</div>
+          <h3 className="text-lg font-semibold text-destructive mb-2">Error Loading Frameworks</h3>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()}>Retry</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -262,7 +340,6 @@ const Frameworks = () => {
                         <SelectValue placeholder="All" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">All</SelectItem>
                         {frameworks.map((f)=> (
                           <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
                         ))}
