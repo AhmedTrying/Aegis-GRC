@@ -189,8 +189,11 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
       .from("profiles")
       .select("id, full_name, email, role")
       .eq("org_id", orgId);
-    if (!error && data) setApprovers(((data ?? []) as Tables<"profiles">[]).filter((p) => p.role === "admin"));
-  }, []);
+    if (!error && data) {
+      const eligible = ((data ?? []) as Tables<"profiles">[]).filter((p) => (p.role === "admin" || p.role === "manager") && p.id !== currentUserId);
+      setApprovers(eligible);
+    }
+  }, [currentUserId]);
 
   const preloadLists = useCallback(async () => {
     const orgId = await getRequiredOrgId();
@@ -426,6 +429,10 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
       toast({ variant: "destructive", title: "Missing fields", description: "Approver, rationale, and expiry are required." });
       return;
     }
+    if (currentUserId && acceptForm.approver === currentUserId) {
+      toast({ variant: "destructive", title: "Conflict of duty", description: "Requester cannot select themselves as approver." });
+      return;
+    }
     const now = new Date().toISOString();
     const orgId = await getRequiredOrgId();
     const { error: updateErr } = await supabase
@@ -470,7 +477,11 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
     }
 
     if (updateErr || logErr) {
-      toast({ variant: "destructive", title: "Error", description: updateErr?.message || logErr?.message });
+      const msg = updateErr?.message || logErr?.message || "Unknown error";
+      const friendly = msg.includes("risks_sod_acceptance")
+        ? "Requester cannot be the same as approver. Please choose a different approver."
+        : msg;
+      toast({ variant: "destructive", title: "Error", description: friendly });
     } else {
       toast({ title: "Acceptance requested", description: "The request has been logged." });
       setAcceptFormOpen(false);
@@ -481,8 +492,9 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
   };
 
   const handleApproveAcceptance = async () => {
-    if (role !== "admin" || !(currentUserId && risk.acceptance_approver === currentUserId)) {
-      toast({ variant: "destructive", title: "Not allowed", description: "Only the designated admin approver can approve." });
+    const isEligibleApprover = ((role === "admin" || role === "manager") && !!currentUserId && risk.acceptance_approver === currentUserId);
+    if (!isEligibleApprover) {
+      toast({ variant: "destructive", title: "Not allowed", description: "Only the designated approver (admin/manager) can approve." });
       return;
     }
     if (!risk.acceptance_rationale || !risk.acceptance_expiry) {
@@ -546,8 +558,9 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
   };
 
   const handleRejectAcceptance = async () => {
-    if (role !== "admin" || !(currentUserId && risk.acceptance_approver === currentUserId)) {
-      toast({ variant: "destructive", title: "Not allowed", description: "Only the designated admin approver can reject." });
+    const isEligibleApprover = ((role === "admin" || role === "manager") && !!currentUserId && risk.acceptance_approver === currentUserId);
+    if (!isEligibleApprover) {
+      toast({ variant: "destructive", title: "Not allowed", description: "Only the designated approver (admin/manager) can reject." });
       return;
     }
     // Segregation of duties: requester cannot reject
@@ -804,7 +817,7 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
   })();
   const latestRequested = acceptanceLogs.find((l) => l.action === "requested");
   const requesterId = latestRequested?.actor || null;
-  const canDecideAcceptance = (role === "admin") && (!!currentUserId && risk.acceptance_approver === currentUserId) && (!requesterId || requesterId !== currentUserId);
+  const canDecideAcceptance = ((role === "admin" || role === "manager")) && (!!currentUserId && risk.acceptance_approver === currentUserId) && (!requesterId || requesterId !== currentUserId);
   const controlsCount = linkedControls.length;
   const policiesCount = linkedPolicies.length;
   const findingsCount = findings.length;
@@ -1561,6 +1574,9 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
                             <option key={p.id} value={p.id}>{p.full_name} ({p.role})</option>
                           ))}
                         </select>
+                        {approvers.length === 0 && (
+                          <p className="mt-1 text-sm text-muted-foreground">No eligible approvers found. Approvers must be admins or managers other than you. Go to <a href="/users" className="underline">Users</a> to invite or change roles.</p>
+                        )}
                       </div>
                       <div>
                         <label className="text-sm font-medium">Rationale</label>
@@ -1581,7 +1597,7 @@ export const RiskDetail = ({ risk, open, onOpenChange, onUpdate, canEdit }: Risk
                         />
                       </div>
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={handleRequestAcceptance}>Submit request</Button>
+                        <Button size="sm" onClick={handleRequestAcceptance} disabled={approvers.length === 0 || !acceptForm.approver || !acceptForm.rationale || !acceptForm.expiry}>Submit request</Button>
                         <Button size="sm" variant="outline" onClick={() => setAcceptFormOpen(false)}>Cancel</Button>
                       </div>
                     </div>
